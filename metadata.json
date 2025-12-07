@@ -1,0 +1,5 @@
+{
+  "name": "HAR Data Extractor & Knowledge Graph",
+  "description": "A robust tool to ingest HAR files, filter network traffic, extract structured data using dynamic transformers, and visualize relationships via an AI-powered Knowledge Graph.",
+  "requestFramePermissions": []
+}
