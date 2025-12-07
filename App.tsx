@@ -1,8 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings } from 'lucide-react';
 import HarViewer from './components/HarViewer';
-import DataTransformer from './components/DataTransformer'; // Keep for now, might deprecate fully later
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import TestToolPage from './components/TestToolPage'; 
@@ -17,37 +16,64 @@ const App: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Hidden input for "Add HAR" functionality
+  const addFileInputRef = useRef<HTMLInputElement>(null);
+
   // Lifted Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'model', text: 'Hello! I am ready to analyze your HAR file. I can inspect requests, understand the data structure, and extract specific information into the Knowledge Graph.' }
   ]);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const content = e.target?.result as string;
-          const parsed: HarFile = JSON.parse(content);
-          
-          // Enrich entries with ID and selection state
-          const wrapped: HarEntryWrapper[] = parsed.log.entries.map((entry, idx) => ({
-            ...entry,
-            _index: idx,
-            _id: `entry-${idx}-${Math.random().toString(36).substr(2, 9)}`,
-            _selected: false // Default to unselected? Or all selected? Let's say unselected for manual or all for auto.
-          }));
-          
-          setHarEntries(wrapped);
-          setViewMode(ViewMode.EXPLORE);
-          setUploadError(null);
-        } catch (error) {
-          setUploadError("Invalid HAR file format. Please try again.");
+  const processHarFile = (file: File, append: boolean) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const parsed: HarFile = JSON.parse(content);
+        const harId = Math.random().toString(36).substr(2, 9);
+        
+        // Enrich entries with ID, selection state, and source file info
+        const existingLength = append ? harEntries.length : 0;
+        const wrapped: HarEntryWrapper[] = parsed.log.entries.map((entry, idx) => ({
+          ...entry,
+          _index: existingLength + idx,
+          _id: `entry-${harId}-${idx}`,
+          _selected: false,
+          _harId: harId,
+          _harName: file.name
+        }));
+        
+        if (append) {
+            setHarEntries(prev => [...prev, ...wrapped]);
+        } else {
+            setHarEntries(wrapped);
+            setViewMode(ViewMode.EXPLORE);
         }
-      };
-      reader.readAsText(file);
-    }
+        
+        setUploadError(null);
+      } catch (error) {
+        setUploadError("Invalid HAR file format. Please try again.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleInitialUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) processHarFile(file, false);
+    // Reset input
+    event.target.value = '';
+  };
+
+  const handleAddHar = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) processHarFile(file, true);
+    // Reset input
+    event.target.value = '';
+  };
+
+  const triggerAddHar = () => {
+    addFileInputRef.current?.click();
   };
 
   const handleImportProject = (backup: ProjectBackup) => {
@@ -62,15 +88,12 @@ const App: React.FC = () => {
         const nextNodes = [...prev.nodes];
         const nextLinks = [...prev.links];
         
-        let addedCount = 0;
         newEntities.forEach(entity => {
             if (!nextNodes.find(n => n.id === entity.id)) {
                 nextNodes.push(entity);
-                addedCount++;
             }
             
-            // Auto-linking heuristics based on IDs found in data
-            // Example: if entity has 'projectId' and we have a 'Project' node with that ID
+            // Auto-linking heuristics
             Object.entries(entity.data).forEach(([key, value]) => {
                 if (typeof value === 'string' && (key.endsWith('Id') || key === 'id')) {
                     const targetNode = nextNodes.find(n => n.id === value && n.id !== entity.id);
@@ -87,10 +110,6 @@ const App: React.FC = () => {
         });
         return { nodes: nextNodes, links: nextLinks };
     });
-    // Optional: Switch to graph view or notify
-    if (isChatOpen) {
-       // Chat handles notification via text
-    }
   };
 
   return (
@@ -151,6 +170,15 @@ const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 flex overflow-hidden relative">
         
+        {/* Hidden Input for Adding HARs */}
+        <input 
+            type="file" 
+            ref={addFileInputRef} 
+            onChange={handleAddHar} 
+            accept=".har" 
+            className="hidden" 
+        />
+
         {viewMode === ViewMode.UPLOAD && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-900">
                 <div className="max-w-md w-full">
@@ -164,7 +192,7 @@ const App: React.FC = () => {
                         </p>
                         <label className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors font-medium inline-block">
                             Select File
-                            <input type="file" accept=".har" onChange={handleFileUpload} className="hidden" />
+                            <input type="file" accept=".har" onChange={handleInitialUpload} className="hidden" />
                         </label>
                     </div>
                     {uploadError && (
@@ -181,6 +209,7 @@ const App: React.FC = () => {
                 <HarViewer 
                     entries={harEntries} 
                     setEntries={setHarEntries}
+                    onAddHar={triggerAddHar}
                 />
             </div>
         )}
@@ -223,13 +252,12 @@ const App: React.FC = () => {
             ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'invisible opacity-0'}
             w-full md:w-[450px]
         `}>
-            {/* The ChatInterface component now handles its own close button */}
             <ChatInterface 
                 harData={harEntries} 
                 messages={chatMessages}
                 setMessages={setChatMessages}
                 onExtractData={handleAddEntity}
-                onClose={() => setIsChatOpen(false)} // Pass the close handler
+                onClose={() => setIsChatOpen(false)} 
             />
         </div>
 
@@ -252,7 +280,6 @@ const NavButton = ({ icon, label, onClick, active, disabled }: any) => (
         {icon}
         <span className="absolute left-16 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-xs px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-gray-700 shadow-xl">
             {label}
-            {/* Little triangle arrow */}
             <span className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 w-2 h-2 bg-gray-900 border-l border-b border-gray-700 transform rotate-45"></span>
         </span>
     </button>

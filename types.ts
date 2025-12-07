@@ -56,7 +56,11 @@ export interface HarEntryWrapper extends HarEntry {
   _index: number;
   _id: string;
   _selected: boolean;
-  _groupKey?: string;
+  
+  // Grouping & Source Info
+  _harId: string;   // UUID of the specific HAR file
+  _harName: string; // Filename
+  _groupKey?: string; // For visual grouping (deprecated in favor of dynamic grouping in viewer)
 }
 
 // Extracted Data Structure
