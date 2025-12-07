@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { HarEntryWrapper } from '../types';
 import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle } from 'lucide-react';
 import JsonViewer from './JsonViewer';
@@ -85,7 +85,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
 
   // Helper: Get all IDs that should be affected by interacting with a specific entry ID
   // If grouped, this means all IDs in that group. If not, just the ID.
-  const getAffectedIds = (targetId: string): string[] => {
+  const getAffectedIds = useCallback((targetId: string): string[] => {
       if (groupByUrl && groupsInfo) {
           const key = groupsInfo.idToGroupKey[targetId];
           if (key && groupsInfo.groupKeyToIds[key]) {
@@ -93,9 +93,9 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
           }
       }
       return [targetId];
-  };
+  }, [groupByUrl, groupsInfo]);
 
-  const toggleSelection = (id: string) => {
+  const toggleSelection = useCallback((id: string) => {
     const affectedIds = new Set(getAffectedIds(id));
     
     setEntries(prev => {
@@ -116,7 +116,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
             return e;
         });
     });
-  };
+  }, [getAffectedIds, setEntries]);
 
   const toggleAll = () => {
     // 1. Identify all IDs currently represented in the view
@@ -142,19 +142,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
     ));
   };
 
-  const handleDeleteClick = () => {
-      const selectedCount = entries.filter(e => e._selected).length;
-      if (selectedCount > 0) {
-          setShowDeleteConfirm(true);
-      }
-  };
-
-  const confirmDelete = () => {
-    setEntries(prev => prev.filter(e => !e._selected));
-    setSelectedId(null);
-    setShowDeleteConfirm(false);
-  };
-  
   // Calculate selection stats for UI
   const selectedCount = entries.filter(e => e._selected).length;
   // Are all *displayed* entries selected?
@@ -165,6 +152,90 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
       // Find these ids in main list and check _selected
       return entries.filter(entry => ids.includes(entry._id)).every(entry => entry._selected);
   });
+
+
+  const handleDeleteClick = useCallback(() => {
+      if (selectedCount > 0) {
+          setShowDeleteConfirm(true);
+      }
+  }, [selectedCount]);
+
+  const confirmDelete = useCallback(() => {
+    setEntries(prev => prev.filter(e => !e._selected));
+    setSelectedId(null);
+    setShowDeleteConfirm(false);
+  }, [setEntries]);
+  
+  
+  // --- Keyboard Navigation ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // 1. Modal Shortcuts
+        if (showDeleteConfirm) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                confirmDelete();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setShowDeleteConfirm(false);
+            }
+            return;
+        }
+
+        // 2. Ignore if typing in inputs
+        const target = e.target as HTMLElement;
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+            return;
+        }
+
+        // 3. Global Actions
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selectedCount > 0) {
+                e.preventDefault();
+                handleDeleteClick();
+            }
+        }
+        
+        if (e.key === 'Escape') {
+            if (selectedId) {
+                e.preventDefault();
+                setSelectedId(null);
+            }
+        }
+
+        if (e.code === 'Space') {
+            if (selectedId) {
+                e.preventDefault();
+                toggleSelection(selectedId);
+            }
+        }
+
+        // 4. Arrow Navigation
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            
+            const currentIndex = displayedEntries.findIndex(e => e._id === selectedId);
+            let nextIndex = currentIndex;
+
+            if (e.key === 'ArrowDown') {
+                if (currentIndex === -1) nextIndex = 0; // Select first if none
+                else nextIndex = Math.min(currentIndex + 1, displayedEntries.length - 1);
+            } else if (e.key === 'ArrowUp') {
+                if (currentIndex > 0) nextIndex = currentIndex - 1;
+            }
+
+            if (nextIndex !== -1 && nextIndex !== currentIndex) {
+                const nextId = displayedEntries[nextIndex]._id;
+                setSelectedId(nextId);
+                // Scroll into view
+                document.getElementById(`row-${nextId}`)?.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDeleteConfirm, selectedCount, displayedEntries, selectedId, confirmDelete, handleDeleteClick, toggleSelection]);
 
 
   const getMethodColor = (method: string) => {
@@ -200,13 +271,13 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
                         onClick={() => setShowDeleteConfirm(false)}
                         className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium transition-colors"
                     >
-                        Cancel
+                        Cancel <span className="text-gray-500 text-xs ml-1">(Esc)</span>
                     </button>
                     <button 
                         onClick={confirmDelete}
                         className="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors"
                     >
-                        Delete
+                        Delete <span className="text-red-200 text-xs ml-1">(Enter)</span>
                     </button>
                 </div>
             </div>
@@ -265,6 +336,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
                     onClick={handleDeleteClick} 
                     className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" 
                     disabled={selectedCount === 0}
+                    title="Delete selected entries (Delete key)"
                 >
                     <Trash2 size={12} /> Delete {selectedCount > 0 ? `(${selectedCount})` : 'Selected'}
                 </button>
@@ -272,7 +344,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
         </div>
 
         {/* List Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto outline-none" tabIndex={0}>
             {displayedEntries.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-gray-500 text-sm">
                     No entries found
@@ -289,8 +361,9 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
                     return (
                         <div 
                             key={entry._id} 
+                            id={`row-${entry._id}`}
                             className={`
-                                group flex items-center border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer
+                                group flex items-center border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors
                                 ${isSelected ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'}
                             `}
                             onClick={() => setSelectedId(entry._id)}
@@ -318,7 +391,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
                                     {entry._groupKey && (
                                         <span className="text-[10px] bg-purple-900/50 text-purple-300 px-1 rounded border border-purple-800">
                                             Group
-                                            {/* Optional: Show count in group if we wanted to calculate it here, but keeping it simple */}
                                         </span>
                                     )}
                                     <span className="text-xs text-gray-500 ml-auto">
@@ -361,7 +433,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
                         <span>{selectedEntry.response.status} {selectedEntry.response.statusText}</span>
                     </div>
                  </div>
-                 <button onClick={() => setSelectedId(null)} className="text-gray-500 hover:text-white">
+                 <button onClick={() => setSelectedId(null)} className="text-gray-500 hover:text-white" title="Close Details (Esc)">
                      <ArrowRight size={18} />
                  </button>
              </div>
