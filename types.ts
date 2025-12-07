@@ -1,3 +1,4 @@
+
 export interface HarHeader {
   name: string;
   value: string;
@@ -77,10 +78,25 @@ export interface KnowledgeGraphData {
   links: KnowledgeLink[];
 }
 
+export interface ChatMessage {
+  role: 'user' | 'model' | 'system';
+  text: string;
+}
+
+export interface ProjectBackup {
+  version: string;
+  timestamp: string;
+  name?: string;
+  harEntries: HarEntryWrapper[];
+  knowledgeData: KnowledgeGraphData;
+  chatHistory: ChatMessage[];
+}
+
 // UI State Types
 export enum ViewMode {
   UPLOAD = 'UPLOAD',
   EXPLORE = 'EXPLORE',
   GRAPH = 'GRAPH',
-  TEST_TOOLS = 'TEST_TOOLS', // New view mode for testing AI tools
+  TEST_TOOLS = 'TEST_TOOLS',
+  SETTINGS = 'SETTINGS'
 }

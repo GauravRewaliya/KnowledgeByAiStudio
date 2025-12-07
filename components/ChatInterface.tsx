@@ -1,19 +1,19 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Loader2, Sparkles, Database, X } from 'lucide-react'; // Import X icon
+import { Send, User, Bot, Loader2, Sparkles, Database, X } from 'lucide-react'; 
 import { runHarAgent } from '../services/geminiService';
-import { HarEntryWrapper, ExtractedEntity } from '../types';
+import { HarEntryWrapper, ExtractedEntity, ChatMessage } from '../types';
 
 interface ChatInterfaceProps {
   harData: HarEntryWrapper[];
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onExtractData: (entities: ExtractedEntity[]) => void;
-  onClose: () => void; // New prop for closing the chat
+  onClose: () => void;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData, onClose }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, messages, setMessages, onExtractData, onClose }) => {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Array<{ role: string; text: string }>>([
-    { role: 'model', text: 'Hello! I am ready to analyze your HAR file. I can inspect requests, understand the data structure, and extract specific information into the Knowledge Graph.' }
-  ]);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -34,13 +34,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData, o
     setLoading(true);
 
     try {
+      // Filter out system messages if any, though usually we only have user/model in state
+      const historyForAgent = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, text: m.text }));
+
       const response = await runHarAgent(
-          messages.filter(m => m.role !== 'system'), 
+          historyForAgent, 
           userMsg, 
           harData,
           (extractedData) => {
-             // Adapt extracted data to Entity format if needed, or assume agent produces generic data
-             // We'll wrap generic data into 'ExtractedEntity' if it lacks id/type
+             // Adapt extracted data to Entity format if needed
              const entities: ExtractedEntity[] = extractedData.map((d, i) => ({
                  id: d.id || `extracted-${Date.now()}-${i}`,
                  type: d.type || 'ExtractedItem',
@@ -73,7 +75,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData, o
             <Sparkles className="text-yellow-400 w-5 h-5" />
             <h3 className="font-semibold text-gray-200">HarMind Agent</h3>
         </div>
-        <div className="flex items-center gap-2"> {/* Wrapper for stats and close button */}
+        <div className="flex items-center gap-2"> 
             <div className="text-xs text-gray-500 flex items-center gap-1">
                 <Database size={12} />
                 {harData.filter(e => e._selected).length > 0 ? `${harData.filter(e => e._selected).length} selected` : 'All entries'}

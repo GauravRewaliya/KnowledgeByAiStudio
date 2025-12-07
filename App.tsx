@@ -1,12 +1,14 @@
+
 import React, { useState } from 'react';
-import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2, FlaskConical } from 'lucide-react';
+import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings } from 'lucide-react';
 import HarViewer from './components/HarViewer';
 import DataTransformer from './components/DataTransformer'; // Keep for now, might deprecate fully later
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
-import TestToolPage from './components/TestToolPage'; // New import
-import { HarFile, HarEntryWrapper, ExtractedEntity, KnowledgeGraphData, ViewMode } from './types';
-import { allToolDefinitions } from './tools'; // Import for initial tool selection
+import TestToolPage from './components/TestToolPage'; 
+import SettingsPage from './components/SettingsPage';
+import { HarFile, HarEntryWrapper, ExtractedEntity, KnowledgeGraphData, ViewMode, ChatMessage, ProjectBackup } from './types';
+import { allToolDefinitions } from './tools'; 
 
 const App: React.FC = () => {
   const [harEntries, setHarEntries] = useState<HarEntryWrapper[]>([]);
@@ -14,6 +16,11 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.UPLOAD);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Lifted Chat State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { role: 'model', text: 'Hello! I am ready to analyze your HAR file. I can inspect requests, understand the data structure, and extract specific information into the Knowledge Graph.' }
+  ]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -41,6 +48,13 @@ const App: React.FC = () => {
       };
       reader.readAsText(file);
     }
+  };
+
+  const handleImportProject = (backup: ProjectBackup) => {
+      setHarEntries(backup.harEntries || []);
+      setKnowledgeData(backup.knowledgeData || { nodes: [], links: [] });
+      setChatMessages(backup.chatHistory || []);
+      setViewMode(ViewMode.EXPLORE);
   };
 
   const handleAddEntity = (newEntities: ExtractedEntity[]) => {
@@ -115,6 +129,12 @@ const App: React.FC = () => {
                 icon={<FlaskConical size={20} />} 
                 label="Test Tools" 
             />
+            <NavButton 
+                active={viewMode === ViewMode.SETTINGS} 
+                onClick={() => setViewMode(ViewMode.SETTINGS)} 
+                icon={<Settings size={20} />} 
+                label="Settings & Backup" 
+            />
         </div>
 
         <div className="mt-auto mb-4">
@@ -186,6 +206,17 @@ const App: React.FC = () => {
             </div>
         )}
 
+        {viewMode === ViewMode.SETTINGS && (
+            <div className="flex-1 flex w-full overflow-hidden">
+                <SettingsPage 
+                    harEntries={harEntries}
+                    knowledgeData={knowledgeData}
+                    chatMessages={chatMessages}
+                    onImportProject={handleImportProject}
+                />
+            </div>
+        )}
+
         {/* Chat Drawer */}
         <div className={`
             absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-all duration-300 ease-in-out
@@ -195,6 +226,8 @@ const App: React.FC = () => {
             {/* The ChatInterface component now handles its own close button */}
             <ChatInterface 
                 harData={harEntries} 
+                messages={chatMessages}
+                setMessages={setChatMessages}
                 onExtractData={handleAddEntity}
                 onClose={() => setIsChatOpen(false)} // Pass the close handler
             />
