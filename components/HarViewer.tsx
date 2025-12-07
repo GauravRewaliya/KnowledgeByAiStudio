@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo } from 'react';
 import { HarEntryWrapper } from '../types';
-import { Search, Filter, Layers, Clock, CheckSquare, Square, Trash2, ChevronRight, ChevronDown, ArrowRight } from 'lucide-react';
+import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 
 interface HarViewerProps {
@@ -15,6 +16,9 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
   const [viewType, setViewType] = useState<ViewType>('TABLE');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [groupByUrl, setGroupByUrl] = useState(false);
+  
+  // State for delete confirmation modal
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Parse JSON content for the selected entry to show in the side panel
   const selectedEntry = useMemo(() => entries.find(e => e._id === selectedId), [entries, selectedId]);
@@ -27,56 +31,142 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
     }
   }, [selectedEntry]);
 
-  // Derived filtered entries
+  // --- Grouping Logic ---
+  // We compute a map of GroupKey -> [EntryIDs] to handle selection of entire groups
+  const groupsInfo = useMemo(() => {
+    if (!groupByUrl) return null;
+    
+    const groupKeyToIds: Record<string, string[]> = {};
+    const idToGroupKey: Record<string, string> = {};
+
+    entries.forEach(e => {
+        const key = e.request.method + ' ' + e.request.url.split('?')[0];
+        if (!groupKeyToIds[key]) groupKeyToIds[key] = [];
+        groupKeyToIds[key].push(e._id);
+        idToGroupKey[e._id] = key;
+    });
+
+    return { groupKeyToIds, idToGroupKey };
+  }, [entries, groupByUrl]);
+
+
+  // --- Filtering & Display Logic ---
   const displayedEntries = useMemo(() => {
     let data = entries;
+
+    // 1. Text Filter
     if (filter) {
       const lower = filter.toLowerCase();
       data = data.filter(e => e.request.url.toLowerCase().includes(lower));
     }
     
-    if (groupByUrl) {
-      // Simple grouping by URL w/o query params
-      const groups: Record<string, HarEntryWrapper[]> = {};
-      data.forEach(e => {
-        const key = e.request.method + ' ' + e.request.url.split('?')[0];
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(e);
-      });
-      // Flatten but keep group logic visible? For now just showing unique endpoints could be tricky in a flat list.
-      // Let's return just the first of each group for the "Grouped" view, or maybe a tree structure.
-      // To keep it simple for this iteration: Filter to show only unique method+path
+    // 2. Grouping
+    if (groupByUrl && groupsInfo) {
+      // Return only the first entry of each group found in the filtered data
       const unique: HarEntryWrapper[] = [];
-      const seen = new Set<string>();
+      const seenKeys = new Set<string>();
+      
       data.forEach(e => {
-          const key = e.request.method + ' ' + e.request.url.split('?')[0];
-          if (!seen.has(key)) {
-              seen.add(key);
-              unique.push({ ...e, _groupKey: key }); // Mark as representative
+          const key = groupsInfo.idToGroupKey[e._id];
+          if (key && !seenKeys.has(key)) {
+              seenKeys.add(key);
+              // Mark this entry as the visual representative for the group
+              unique.push({ ...e, _groupKey: key }); 
           }
       });
       return unique;
     }
 
     return data;
-  }, [entries, filter, groupByUrl]);
+  }, [entries, filter, groupByUrl, groupsInfo]);
 
-  // Bulk Selection Logic
+
+  // --- Selection Logic ---
+
+  // Helper: Get all IDs that should be affected by interacting with a specific entry ID
+  // If grouped, this means all IDs in that group. If not, just the ID.
+  const getAffectedIds = (targetId: string): string[] => {
+      if (groupByUrl && groupsInfo) {
+          const key = groupsInfo.idToGroupKey[targetId];
+          if (key && groupsInfo.groupKeyToIds[key]) {
+              return groupsInfo.groupKeyToIds[key];
+          }
+      }
+      return [targetId];
+  };
+
   const toggleSelection = (id: string) => {
-    setEntries(prev => prev.map(e => e._id === id ? { ...e, _selected: !e._selected } : e));
+    const affectedIds = new Set(getAffectedIds(id));
+    
+    setEntries(prev => {
+        // Determine target state based on the clicked item.
+        // We find the current state of the clicked item in the PREVIOUS state array
+        const targetEntry = prev.find(e => e._id === id);
+        
+        // Safety check
+        if (!targetEntry) return prev;
+
+        // Toggle state
+        const newSelectedState = !targetEntry._selected;
+
+        return prev.map(e => {
+            if (affectedIds.has(e._id)) {
+                return { ...e, _selected: newSelectedState };
+            }
+            return e;
+        });
+    });
   };
 
   const toggleAll = () => {
-    const allSelected = displayedEntries.every(e => e._selected);
-    setEntries(prev => prev.map(e => displayedEntries.find(d => d._id === e._id) ? { ...e, _selected: !allSelected } : e));
+    // 1. Identify all IDs currently represented in the view
+    const visibleIds = new Set<string>();
+    displayedEntries.forEach(e => {
+        const affected = getAffectedIds(e._id);
+        affected.forEach(id => visibleIds.add(id));
+    });
+
+    if (visibleIds.size === 0) return;
+
+    // 2. Check if all visible items are currently selected
+    // We check the source 'entries' to see if every ID in 'visibleIds' is selected
+    const allVisibleAreSelected = entries
+        .filter(e => visibleIds.has(e._id))
+        .every(e => e._selected);
+
+    const targetState = !allVisibleAreSelected;
+
+    // 3. Update state
+    setEntries(prev => prev.map(e => 
+        visibleIds.has(e._id) ? { ...e, _selected: targetState } : e
+    ));
   };
 
-  const removeUnselected = () => {
-    if (confirm('Remove all unselected entries from the workspace?')) {
-        setEntries(prev => prev.filter(e => e._selected));
-    }
+  const handleDeleteClick = () => {
+      const selectedCount = entries.filter(e => e._selected).length;
+      if (selectedCount > 0) {
+          setShowDeleteConfirm(true);
+      }
+  };
+
+  const confirmDelete = () => {
+    setEntries(prev => prev.filter(e => !e._selected));
+    setSelectedId(null);
+    setShowDeleteConfirm(false);
   };
   
+  // Calculate selection stats for UI
+  const selectedCount = entries.filter(e => e._selected).length;
+  // Are all *displayed* entries selected?
+  // We verify if every ID implied by displayedEntries is selected in the main list.
+  const isAllDisplayedSelected = displayedEntries.length > 0 && displayedEntries.every(e => {
+      // For a displayed entry, are ALL its group members selected?
+      const ids = getAffectedIds(e._id);
+      // Find these ids in main list and check _selected
+      return entries.filter(entry => ids.includes(entry._id)).every(entry => entry._selected);
+  });
+
+
   const getMethodColor = (method: string) => {
     switch (method) {
       case 'GET': return 'text-blue-400 bg-blue-400/10';
@@ -93,7 +183,36 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
   const totalDuration = endTime - startTime || 1;
 
   return (
-    <div className="flex h-full w-full bg-gray-900">
+    <div className="flex h-full w-full bg-gray-900 relative">
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl p-6 max-w-sm w-full animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-3 text-red-400 mb-4">
+                    <AlertTriangle size={24} />
+                    <h3 className="text-lg font-bold text-white">Confirm Deletion</h3>
+                </div>
+                <p className="text-gray-300 mb-6">
+                    Are you sure you want to delete <span className="font-bold text-white">{selectedCount}</span> selected entries? This action cannot be undone.
+                </p>
+                <div className="flex justify-end gap-3">
+                    <button 
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={confirmDelete}
+                        className="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Left Panel: List/Waterfall */}
       <div className={`${selectedId ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-700 transition-all duration-300`}>
         {/* Toolbar */}
@@ -129,79 +248,104 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries }) => {
             
             <div className="flex items-center justify-between text-xs text-gray-400">
                 <div className="flex items-center gap-3">
-                    <button onClick={toggleAll} className="flex items-center gap-1 hover:text-white">
-                        {displayedEntries.length > 0 && displayedEntries.every(e => e._selected) ? <CheckSquare size={14} /> : <Square size={14} />}
-                        Select All
+                    <button 
+                        onClick={toggleAll} 
+                        className="flex items-center gap-1 hover:text-white font-medium"
+                        title="Select/Deselect all visible entries"
+                    >
+                        {isAllDisplayedSelected ? <CheckSquare size={14} className="text-blue-500" /> : <Square size={14} />}
+                        Select All {filter ? '(Filtered)' : ''}
                     </button>
-                    <label className="flex items-center gap-1 cursor-pointer hover:text-white">
+                    <label className="flex items-center gap-1 cursor-pointer hover:text-white select-none">
                         <input type="checkbox" checked={groupByUrl} onChange={e => setGroupByUrl(e.target.checked)} className="rounded bg-gray-700 border-gray-600" />
                         Group by Endpoint
                     </label>
                 </div>
-                <button onClick={removeUnselected} className="flex items-center gap-1 text-red-400 hover:text-red-300">
-                    <Trash2 size={12} /> Clean Unselected
+                <button 
+                    onClick={handleDeleteClick} 
+                    className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" 
+                    disabled={selectedCount === 0}
+                >
+                    <Trash2 size={12} /> Delete {selectedCount > 0 ? `(${selectedCount})` : 'Selected'}
                 </button>
             </div>
         </div>
 
         {/* List Content */}
         <div className="flex-1 overflow-y-auto">
-            {displayedEntries.map((entry) => {
-                const startOffset = new Date(entry.startedDateTime).getTime() - startTime;
-                const widthPercent = (entry.time / totalDuration) * 100;
-                const leftPercent = (startOffset / totalDuration) * 100;
+            {displayedEntries.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                    No entries found
+                </div>
+            ) : (
+                displayedEntries.map((entry) => {
+                    const startOffset = new Date(entry.startedDateTime).getTime() - startTime;
+                    const widthPercent = (entry.time / totalDuration) * 100;
+                    const leftPercent = (startOffset / totalDuration) * 100;
 
-                const isSelected = selectedId === entry._id;
-                
-                return (
-                    <div 
-                        key={entry._id} 
-                        className={`
-                            group flex items-center border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer
-                            ${isSelected ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'}
-                        `}
-                        onClick={() => setSelectedId(entry._id)}
-                    >
-                        {/* Checkbox */}
-                        <div className="pl-3 pr-2 py-3" onClick={(e) => { e.stopPropagation(); toggleSelection(entry._id); }}>
-                            {entry._selected ? <CheckSquare size={14} className="text-blue-500" /> : <Square size={14} className="text-gray-600 group-hover:text-gray-500" />}
-                        </div>
-
-                        <div className="flex-1 min-w-0 py-2 pr-3">
-                             <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[10px] font-bold px-1.5 rounded ${getMethodColor(entry.request.method)}`}>
-                                    {entry.request.method}
-                                </span>
-                                <span className={`text-[10px] ${entry.response.status < 400 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {entry.response.status}
-                                </span>
-                                {entry._groupKey && (
-                                    <span className="text-[10px] bg-gray-700 text-gray-300 px-1 rounded">Grouped</span>
+                    const isSelected = selectedId === entry._id;
+                    const isChecked = entry._selected; 
+                    
+                    return (
+                        <div 
+                            key={entry._id} 
+                            className={`
+                                group flex items-center border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer
+                                ${isSelected ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'}
+                            `}
+                            onClick={() => setSelectedId(entry._id)}
+                        >
+                            {/* Checkbox */}
+                            <div 
+                                className="pl-3 pr-2 py-3 cursor-pointer" 
+                                onClick={(e) => { e.stopPropagation(); toggleSelection(entry._id); }}
+                            >
+                                {isChecked ? (
+                                    <CheckSquare size={14} className="text-blue-500" />
+                                ) : (
+                                    <Square size={14} className="text-gray-600 group-hover:text-gray-500" />
                                 )}
-                                <span className="text-xs text-gray-500 ml-auto">
-                                    {(entry.response.content.size / 1024).toFixed(1)} KB
-                                </span>
-                             </div>
-                             
-                             <div className="flex items-center justify-between">
-                                <div className="text-xs text-gray-300 truncate font-mono" title={entry.request.url}>
-                                    {entry.request.url.split('?')[0].split('/').slice(-2).join('/')}
-                                </div>
-                                <div className="text-[10px] text-gray-500">{Math.round(entry.time)}ms</div>
-                             </div>
+                            </div>
 
-                             {viewType === 'WATERFALL' && (
-                                 <div className="mt-2 h-1 bg-gray-800 rounded-full w-full relative overflow-hidden">
-                                     <div 
-                                        className="absolute h-full bg-blue-600 rounded-full opacity-50"
-                                        style={{ left: `${leftPercent}%`, width: `${Math.max(widthPercent, 0.5)}%` }}
-                                     />
+                            <div className="flex-1 min-w-0 py-2 pr-3">
+                                 <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-[10px] font-bold px-1.5 rounded ${getMethodColor(entry.request.method)}`}>
+                                        {entry.request.method}
+                                    </span>
+                                    <span className={`text-[10px] ${entry.response.status < 400 ? 'text-green-400' : 'text-red-400'}`}>
+                                        {entry.response.status}
+                                    </span>
+                                    {entry._groupKey && (
+                                        <span className="text-[10px] bg-purple-900/50 text-purple-300 px-1 rounded border border-purple-800">
+                                            Group
+                                            {/* Optional: Show count in group if we wanted to calculate it here, but keeping it simple */}
+                                        </span>
+                                    )}
+                                    <span className="text-xs text-gray-500 ml-auto">
+                                        {(entry.response.content.size / 1024).toFixed(1)} KB
+                                    </span>
                                  </div>
-                             )}
+                                 
+                                 <div className="flex items-center justify-between">
+                                    <div className="text-xs text-gray-300 truncate font-mono" title={entry.request.url}>
+                                        {entry.request.url.split('?')[0].split('/').slice(-2).join('/')}
+                                    </div>
+                                    <div className="text-[10px] text-gray-500">{Math.round(entry.time)}ms</div>
+                                 </div>
+
+                                 {viewType === 'WATERFALL' && (
+                                     <div className="mt-2 h-1 bg-gray-800 rounded-full w-full relative overflow-hidden">
+                                         <div 
+                                            className="absolute h-full bg-blue-600 rounded-full opacity-50"
+                                            style={{ left: `${leftPercent}%`, width: `${Math.max(widthPercent, 0.5)}%` }}
+                                         />
+                                     </div>
+                                 )}
+                            </div>
                         </div>
-                    </div>
-                );
-            })}
+                    );
+                })
+            )}
         </div>
       </div>
 

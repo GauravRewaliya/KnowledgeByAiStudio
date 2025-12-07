@@ -189,7 +189,7 @@ const App: React.FC = () => {
         {/* Chat Drawer */}
         <div className={`
             absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-all duration-300 ease-in-out
-            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'translate-x-full invisible opacity-0'}
+            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'invisible opacity-0'}
             w-full md:w-[450px]
         `}>
             {/* The ChatInterface component now handles its own close button */}
