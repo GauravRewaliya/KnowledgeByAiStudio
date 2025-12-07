@@ -1,74 +1,37 @@
 
-import React, { useState, useRef } from 'react';
-import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Upload, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings, ArrowLeft } from 'lucide-react';
 import HarViewer from './components/HarViewer';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import TestToolPage from './components/TestToolPage'; 
 import SettingsPage from './components/SettingsPage';
-import { HarFile, HarEntryWrapper, ExtractedEntity, KnowledgeGraphData, ViewMode, ChatMessage, ProjectBackup } from './types';
+import ProjectManager from './components/ProjectManager';
+import { useProjectStore } from './store/projectStore';
+import { ViewMode, ExtractedEntity } from './types';
 import { allToolDefinitions } from './tools'; 
 
 const App: React.FC = () => {
-  const [harEntries, setHarEntries] = useState<HarEntryWrapper[]>([]);
-  const [knowledgeData, setKnowledgeData] = useState<KnowledgeGraphData>({ nodes: [], links: [] });
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.UPLOAD);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-
-  // Hidden input for "Add HAR" functionality
+  const { 
+      activeProject, 
+      viewMode, 
+      setViewMode, 
+      closeProject, 
+      init,
+      addHarFile
+  } = useProjectStore();
+  
+  const [isChatOpen, setIsChatOpen] = React.useState(false);
   const addFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Lifted Chat State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Hello! I am ready to analyze your HAR file. I can inspect requests, understand the data structure, and extract specific information into the Knowledge Graph.' }
-  ]);
-
-  const processHarFile = (file: File, append: boolean) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const parsed: HarFile = JSON.parse(content);
-        const harId = Math.random().toString(36).substr(2, 9);
-        
-        // Enrich entries with ID, selection state, and source file info
-        const existingLength = append ? harEntries.length : 0;
-        const wrapped: HarEntryWrapper[] = parsed.log.entries.map((entry, idx) => ({
-          ...entry,
-          _index: existingLength + idx,
-          _id: `entry-${harId}-${idx}`,
-          _selected: false,
-          _harId: harId,
-          _harName: file.name
-        }));
-        
-        if (append) {
-            setHarEntries(prev => [...prev, ...wrapped]);
-        } else {
-            setHarEntries(wrapped);
-            setViewMode(ViewMode.EXPLORE);
-        }
-        
-        setUploadError(null);
-      } catch (error) {
-        setUploadError("Invalid HAR file format. Please try again.");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleInitialUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) processHarFile(file, false);
-    // Reset input
-    event.target.value = '';
-  };
+  // Initialize store on mount
+  useEffect(() => {
+      init();
+  }, [init]);
 
   const handleAddHar = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) processHarFile(file, true);
-    // Reset input
+    if (file) addHarFile(file);
     event.target.value = '';
   };
 
@@ -76,56 +39,34 @@ const App: React.FC = () => {
     addFileInputRef.current?.click();
   };
 
-  const handleImportProject = (backup: ProjectBackup) => {
-      setHarEntries(backup.harEntries || []);
-      setKnowledgeData(backup.knowledgeData || { nodes: [], links: [] });
-      setChatMessages(backup.chatHistory || []);
-      setViewMode(ViewMode.EXPLORE);
-  };
+  // If no active project, show Project Manager
+  if (!activeProject) {
+      return (
+          <div className="h-screen w-screen bg-gray-900">
+             <ProjectManager />
+          </div>
+      );
+  }
 
-  const handleAddEntity = (newEntities: ExtractedEntity[]) => {
-    setKnowledgeData(prev => {
-        const nextNodes = [...prev.nodes];
-        const nextLinks = [...prev.links];
-        
-        newEntities.forEach(entity => {
-            if (!nextNodes.find(n => n.id === entity.id)) {
-                nextNodes.push(entity);
-            }
-            
-            // Auto-linking heuristics
-            Object.entries(entity.data).forEach(([key, value]) => {
-                if (typeof value === 'string' && (key.endsWith('Id') || key === 'id')) {
-                    const targetNode = nextNodes.find(n => n.id === value && n.id !== entity.id);
-                    if (targetNode) {
-                         nextLinks.push({ source: entity.id, target: targetNode.id, label: key });
-                    }
-                    // Reverse check
-                    const sourceNode = nextNodes.find(n => n.data.id === value && n.id !== entity.id);
-                    if (sourceNode) {
-                        nextLinks.push({ source: sourceNode.id, target: entity.id, label: key });
-                    }
-                }
-            });
-        });
-        return { nodes: nextNodes, links: nextLinks };
-    });
-  };
+  // Derive counts from active project
+  const harEntries = activeProject.harEntries;
+  const knowledgeData = activeProject.knowledgeData;
 
   return (
     <div className="flex h-screen w-screen bg-gray-900 text-gray-100 font-sans overflow-hidden">
       {/* Sidebar Navigation */}
       <nav className="w-16 bg-gray-950 border-r border-gray-800 flex flex-col items-center py-4 gap-6 z-20 flex-shrink-0">
-        <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/20">
-            <Activity className="text-white w-6 h-6" />
+        <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/20 cursor-pointer" onClick={closeProject} title="Back to Projects">
+            <ArrowLeft className="text-white w-6 h-6" />
         </div>
         
         <div className="flex flex-col gap-4 w-full items-center">
+            {/* Upload now just triggers Add HAR since project is open */}
             <NavButton 
                 active={viewMode === ViewMode.UPLOAD} 
-                onClick={() => setViewMode(ViewMode.UPLOAD)} 
+                onClick={triggerAddHar}
                 icon={<Upload size={20} />} 
-                label="Upload HAR" 
+                label="Add HAR File" 
             />
             <NavButton 
                 active={viewMode === ViewMode.EXPLORE} 
@@ -179,47 +120,23 @@ const App: React.FC = () => {
             className="hidden" 
         />
 
-        {viewMode === ViewMode.UPLOAD && (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-900">
-                <div className="max-w-md w-full">
-                    <div className="border-2 border-dashed border-gray-700 rounded-xl p-12 hover:border-blue-500 transition-colors bg-gray-800/30 group">
-                        <div className="bg-gray-800 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
-                            <Upload className="h-8 w-8 text-blue-500" />
-                        </div>
-                        <h2 className="text-2xl font-bold mb-2 text-white">Upload HAR File</h2>
-                        <p className="text-gray-400 mb-8 text-sm">
-                            Drag & drop your network log (.har) here to begin analysis.
-                        </p>
-                        <label className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors font-medium inline-block">
-                            Select File
-                            <input type="file" accept=".har" onChange={handleInitialUpload} className="hidden" />
-                        </label>
-                    </div>
-                    {uploadError && (
-                        <div className="mt-4 p-3 bg-red-900/20 border border-red-800 text-red-400 rounded text-sm">
-                            {uploadError}
-                        </div>
-                    )}
+        {/* View Routing */}
+        {viewMode === ViewMode.EXPLORE && (
+             harEntries.length > 0 ? (
+                <div className="flex-1 flex w-full overflow-hidden">
+                    <HarViewer onAddHar={triggerAddHar} />
                 </div>
-            </div>
-        )}
-
-        {viewMode === ViewMode.EXPLORE && harEntries.length > 0 && (
-            <div className="flex-1 flex w-full overflow-hidden">
-                <HarViewer 
-                    entries={harEntries} 
-                    setEntries={setHarEntries}
-                    onAddHar={triggerAddHar}
-                />
-            </div>
+             ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
+                    <p className="mb-4">This project has no data yet.</p>
+                    <button onClick={triggerAddHar} className="bg-blue-600 px-4 py-2 rounded text-white">Add HAR File</button>
+                </div>
+             )
         )}
 
         {viewMode === ViewMode.GRAPH && (
             <div className="flex-1 relative">
-                <KnowledgeGraph 
-                    data={knowledgeData} 
-                    onNodeClick={(node) => console.log('Clicked node', node)} 
-                />
+                <KnowledgeGraph />
                  {/* Floating Stats */}
                  <div className="absolute top-4 right-4 bg-gray-800/90 backdrop-blur p-3 rounded-lg shadow-lg border border-gray-700 text-xs text-gray-300">
                     <div className="font-bold mb-1">Graph Stats</div>
@@ -229,20 +146,15 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {viewMode === ViewMode.TEST_TOOLS && harEntries.length > 0 && (
+        {viewMode === ViewMode.TEST_TOOLS && (
             <div className="flex-1 flex w-full overflow-hidden">
-                <TestToolPage harEntries={harEntries} />
+                <TestToolPage />
             </div>
         )}
 
         {viewMode === ViewMode.SETTINGS && (
             <div className="flex-1 flex w-full overflow-hidden">
-                <SettingsPage 
-                    harEntries={harEntries}
-                    knowledgeData={knowledgeData}
-                    chatMessages={chatMessages}
-                    onImportProject={handleImportProject}
-                />
+                <SettingsPage />
             </div>
         )}
 
@@ -252,13 +164,7 @@ const App: React.FC = () => {
             ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'invisible opacity-0'}
             w-full md:w-[450px]
         `}>
-            <ChatInterface 
-                harData={harEntries} 
-                messages={chatMessages}
-                setMessages={setChatMessages}
-                onExtractData={handleAddEntity}
-                onClose={() => setIsChatOpen(false)} 
-            />
+            <ChatInterface onClose={() => setIsChatOpen(false)} />
         </div>
 
       </main>

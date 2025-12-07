@@ -1,30 +1,36 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { HarEntryWrapper } from '../types';
-import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FolderOpen, FileText, Terminal, CheckCircle2 } from 'lucide-react';
+import { useProjectStore } from '../store/projectStore';
+import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FileText, Terminal, CheckCircle2 } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 import { generateCurlCommand } from '../services/harUtils';
 
 interface HarViewerProps {
-  entries: HarEntryWrapper[];
-  setEntries: React.Dispatch<React.SetStateAction<HarEntryWrapper[]>>;
   onAddHar: () => void;
 }
 
 type ViewType = 'TABLE' | 'WATERFALL';
 type GroupMode = 'NONE' | 'FILE' | 'ENDPOINT';
 
-const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) => {
+const HarViewer: React.FC<HarViewerProps> = ({ onAddHar }) => {
+  // Store Hooks
+  const { activeProject, setHarEntries } = useProjectStore();
+  const entries = activeProject?.harEntries || [];
+  
+  // Local UI State
   const [filter, setFilter] = useState('');
   const [viewType, setViewType] = useState<ViewType>('TABLE');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  
-  // Grouping State
   const [groupMode, setGroupMode] = useState<GroupMode>('NONE');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  
-  // State for delete confirmation modal
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [curlCopied, setCurlCopied] = useState(false);
+
+  // Helper to update global state safely
+  const updateGlobalEntries = (newEntries: HarEntryWrapper[]) => {
+      setHarEntries(newEntries);
+  };
 
   // Parse JSON content for the selected entry
   const selectedEntry = useMemo(() => entries.find(e => e._id === selectedId), [entries, selectedId]);
@@ -39,15 +45,12 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
 
   // --- Filtering & Grouping Logic ---
 
-  // 1. Filtered Data
   const filteredEntries = useMemo(() => {
     if (!filter) return entries;
     const lower = filter.toLowerCase();
     return entries.filter(e => e.request.url.toLowerCase().includes(lower));
   }, [entries, filter]);
 
-  // 2. Build Tree Structure (Flat List for Virtual-like rendering)
-  // Returns list of items that are either 'HEADER' or 'ENTRY'
   const flatTree = useMemo(() => {
     if (groupMode === 'NONE') {
         return filteredEntries.map(e => ({ type: 'ENTRY', data: e }));
@@ -64,7 +67,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
             key = e._harId;
             title = e._harName;
         } else {
-            // Group by Endpoint
             const urlObj = new URL(e.request.url);
             key = e.request.method + ':' + urlObj.pathname;
             title = `${e.request.method} ${urlObj.pathname}`;
@@ -99,11 +101,11 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
   // --- Selection Logic ---
 
   const toggleSelection = useCallback((id: string) => {
-    setEntries(prev => prev.map(e => e._id === id ? { ...e, _selected: !e._selected } : e));
-  }, [setEntries]);
+    const newEntries = entries.map(e => e._id === id ? { ...e, _selected: !e._selected } : e);
+    updateGlobalEntries(newEntries);
+  }, [entries]);
 
   const toggleGroupSelection = (key: string) => {
-    // Find all IDs in this group (from filtered entries to match view)
     const groupIds = new Set<string>();
     filteredEntries.forEach(e => {
         let eKey = '';
@@ -116,19 +118,17 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
         if (eKey === key) groupIds.add(e._id);
     });
 
-    // Determine target state (if any unselected, select all. Else deselect all)
     const targetState = !entries.filter(e => groupIds.has(e._id)).every(e => e._selected);
-
-    setEntries(prev => prev.map(e => groupIds.has(e._id) ? { ...e, _selected: targetState } : e));
+    const newEntries = entries.map(e => groupIds.has(e._id) ? { ...e, _selected: targetState } : e);
+    updateGlobalEntries(newEntries);
   };
 
   const toggleAll = () => {
-    // Toggle based on currently filtered entries
     const visibleIds = new Set(filteredEntries.map(e => e._id));
     const allVisibleSelected = filteredEntries.every(e => e._selected);
     const targetState = !allVisibleSelected;
-
-    setEntries(prev => prev.map(e => visibleIds.has(e._id) ? { ...e, _selected: targetState } : e));
+    const newEntries = entries.map(e => visibleIds.has(e._id) ? { ...e, _selected: targetState } : e);
+    updateGlobalEntries(newEntries);
   };
 
   const toggleGroupExpand = (key: string) => {
@@ -140,7 +140,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
       });
   };
 
-  // Stats
   const selectedCount = entries.filter(e => e._selected).length;
   const isAllDisplayedSelected = filteredEntries.length > 0 && filteredEntries.every(e => e._selected);
 
@@ -149,16 +148,15 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
   }, [selectedCount]);
 
   const confirmDelete = useCallback(() => {
-    setEntries(prev => prev.filter(e => !e._selected));
+    const newEntries = entries.filter(e => !e._selected);
+    updateGlobalEntries(newEntries);
     setSelectedId(null);
     setShowDeleteConfirm(false);
-  }, [setEntries]);
+  }, [entries]);
   
-  
-  // --- Keyboard Navigation ---
+  // --- Keyboard & Styling (unchanged logic) ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        // Modal & Inputs check (same as before)
         if (showDeleteConfirm) {
             if (e.key === 'Enter') { e.preventDefault(); confirmDelete(); } 
             else if (e.key === 'Escape') { e.preventDefault(); setShowDeleteConfirm(false); }
@@ -173,19 +171,10 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
         if (e.key === 'Escape' && selectedId) {
             e.preventDefault(); setSelectedId(null);
         }
-        
-        // Basic arrow navigation (simplified for Tree View: only navigates visible Entries)
-        // Implementing full tree nav via keyboard is complex, just supporting basic entry nav here
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-             // Find index in flatTree that is an ENTRY and matches selectedId
-             // This is tricky with Headers in between. 
-             // Leaving basic scroll intact for now.
-        }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showDeleteConfirm, selectedCount, selectedId, confirmDelete, handleDeleteClick]);
-
 
   const getMethodColor = (method: string) => {
     switch (method) {
@@ -197,7 +186,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
     }
   };
 
-  // Copy Curl
   const handleCopyCurl = () => {
     if (selectedEntry) {
         const cmd = generateCurlCommand(selectedEntry.request);
@@ -207,7 +195,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
     }
   };
 
-  // Waterfall
   const startTime = useMemo(() => entries.length ? Math.min(...entries.map(e => new Date(e.startedDateTime).getTime())) : 0, [entries]);
   const endTime = useMemo(() => entries.length ? Math.max(...entries.map(e => new Date(e.startedDateTime).getTime() + e.time)) : 0, [entries]);
   const totalDuration = endTime - startTime || 1;
@@ -217,7 +204,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
       {/* Delete Modal */}
       {showDeleteConfirm && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl p-6 max-w-sm w-full animate-in zoom-in-95 duration-200">
+            <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl p-6 max-w-sm w-full">
                 <div className="flex items-center gap-3 text-red-400 mb-4">
                     <AlertTriangle size={24} />
                     <h3 className="text-lg font-bold text-white">Confirm Deletion</h3>
@@ -316,7 +303,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
                     }
 
                     const entry = item.data as HarEntryWrapper;
-                    // Waterfall Math
                     const startOffset = new Date(entry.startedDateTime).getTime() - startTime;
                     const widthPercent = (entry.time / totalDuration) * 100;
                     const leftPercent = (startOffset / totalDuration) * 100;
@@ -342,7 +328,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
                                  <div className="flex items-center gap-2 mb-1">
                                     <span className={`text-[10px] font-bold px-1.5 rounded ${getMethodColor(entry.request.method)}`}>{entry.request.method}</span>
                                     <span className={`text-[10px] ${entry.response.status < 400 ? 'text-green-400' : 'text-red-400'}`}>{entry.response.status}</span>
-                                    {/* Show File Tag if not grouped by File */}
                                     {groupMode !== 'FILE' && (
                                         <span className="text-[9px] bg-gray-700 text-gray-400 px-1 rounded flex items-center gap-1 max-w-[80px] truncate" title={entry._harName}>
                                             <FileText size={8} /> {entry._harName}
@@ -371,7 +356,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
         </div>
       </div>
 
-      {/* Right Panel: Details (Unchanged mostly, just ensure correct data) */}
+      {/* Right Panel: Details */}
       {selectedId && selectedEntry && (
           <div className="w-1/2 flex flex-col bg-gray-800 border-l border-gray-700 animate-in slide-in-from-right-10 duration-200">
              <div className="p-3 border-b border-gray-700 bg-gray-900 flex justify-between items-center shadow-md">
@@ -394,7 +379,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
                      <button onClick={() => setSelectedId(null)} className="p-1.5 text-gray-500 hover:text-white rounded hover:bg-gray-700" title="Close"><ArrowRight size={18} /></button>
                  </div>
              </div>
-             {/* ... Reuse existing detail content ... */}
              <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 <div>
                     <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Request Headers</h4>

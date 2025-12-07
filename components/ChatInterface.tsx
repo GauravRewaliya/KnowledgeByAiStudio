@@ -2,17 +2,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Loader2, Sparkles, Database, X } from 'lucide-react'; 
 import { runHarAgent } from '../services/geminiService';
-import { HarEntryWrapper, ExtractedEntity, ChatMessage } from '../types';
+import { ExtractedEntity } from '../types';
+import { useProjectStore } from '../store/projectStore';
 
 interface ChatInterfaceProps {
-  harData: HarEntryWrapper[];
-  messages: ChatMessage[];
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onExtractData: (entities: ExtractedEntity[]) => void;
   onClose: () => void;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, messages, setMessages, onExtractData, onClose }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ onClose }) => {
+  const { activeProject, setChatMessages, setKnowledgeData } = useProjectStore();
+  const harData = activeProject?.harEntries || [];
+  const messages = activeProject?.chatHistory || [];
+  
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -30,11 +31,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, messages, setMes
 
     const userMsg = input;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
 
     try {
-      // Filter out system messages if any, though usually we only have user/model in state
       const historyForAgent = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, text: m.text }));
 
       const response = await runHarAgent(
@@ -42,20 +42,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, messages, setMes
           userMsg, 
           harData,
           (extractedData) => {
-             // Adapt extracted data to Entity format if needed
              const entities: ExtractedEntity[] = extractedData.map((d, i) => ({
                  id: d.id || `extracted-${Date.now()}-${i}`,
                  type: d.type || 'ExtractedItem',
                  label: d.label || d.name || d.title || `Item ${i}`,
                  data: d
              }));
-             onExtractData(entities);
+             
+             // Update Knowledge Graph via Store
+             setKnowledgeData(prev => {
+                const nextNodes = [...prev.nodes];
+                const nextLinks = [...prev.links];
+                
+                entities.forEach(entity => {
+                    if (!nextNodes.find(n => n.id === entity.id)) {
+                        nextNodes.push(entity);
+                    }
+                    // Auto-linking logic repeated here or moved to utility
+                    Object.entries(entity.data).forEach(([key, value]) => {
+                        if (typeof value === 'string' && (key.endsWith('Id') || key === 'id')) {
+                            const targetNode = nextNodes.find(n => n.id === value && n.id !== entity.id);
+                            if (targetNode) nextLinks.push({ source: entity.id, target: targetNode.id, label: key });
+                            const sourceNode = nextNodes.find(n => n.data.id === value && n.id !== entity.id);
+                            if (sourceNode) nextLinks.push({ source: sourceNode.id, target: entity.id, label: key });
+                        }
+                    });
+                });
+                return { nodes: nextNodes, links: nextLinks };
+             });
           }
       );
-      setMessages(prev => [...prev, { role: 'model', text: response }]);
+      setChatMessages(prev => [...prev, { role: 'model', text: response }]);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error communicating with Gemini.' }]);
+      setChatMessages(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error communicating with Gemini.' }]);
     } finally {
       setLoading(false);
     }

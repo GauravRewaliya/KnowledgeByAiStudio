@@ -1,16 +1,16 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { allToolDefinitions, toolImplementations } from '../tools';
 import { Type } from "@google/genai";
 import { FuncProp, ToolDefinition } from '../types/ai';
-import { HarEntryWrapper } from '../types';
+import { useProjectStore } from '../store/projectStore';
 import { Play, ClipboardCopy, CheckCircle2 } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 
-interface TestToolPageProps {
-  harEntries: HarEntryWrapper[];
-}
+const TestToolPage: React.FC = () => {
+  const { activeProject } = useProjectStore();
+  const harEntries = activeProject?.harEntries || [];
 
-const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
   const [selectedToolName, setSelectedToolName] = useState<string>(allToolDefinitions[0]?.name || '');
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [toolOutput, setToolOutput] = useState<any>(null);
@@ -22,7 +22,6 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
     [selectedToolName]
   );
 
-  // Dynamic options for certain data sources
   const dynamicOptions = useMemo(() => {
     const options: Record<string, Array<{ label: string; value: string | number }>> = {};
     if (harEntries.length > 0) {
@@ -35,11 +34,10 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
   }, [harEntries]);
 
   useEffect(() => {
-    // Reset form data when selected tool changes
     if (selectedTool) {
       const initialData: Record<string, any> = {};
       Object.entries(selectedTool.parameters.properties).forEach(([key, prop]) => {
-        initialData[key] = prop.default ?? ''; // Set default or empty string
+        initialData[key] = prop.default ?? ''; 
       });
       setFormData(initialData);
       setToolOutput(null);
@@ -51,13 +49,12 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
     const { name, value, type } = e.target;
     let processedValue: any = value;
 
-    // Type conversion based on FuncProp definition
     const prop = selectedTool?.parameters.properties[name] as FuncProp;
     if (prop) {
       if (prop.type === Type.NUMBER) {
         processedValue = parseFloat(value);
       } else if (prop.type === Type.BOOLEAN) {
-        processedValue = value === 'true'; // HTML select returns string
+        processedValue = value === 'true';
       }
     }
     
@@ -104,7 +101,6 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
     if (prop.dataSource && dynamicOptions[prop.dataSource]) {
       return (
         <select {...commonProps}>
-          {/* Fix: Use propName as fallback for the disabled option's label */}
           <option value="" disabled>{prop.title || propName}</option>
           {dynamicOptions[prop.dataSource].map(option => (
             <option key={option.value} value={option.value}>
@@ -129,7 +125,7 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
 
     switch (prop.type) {
       case Type.STRING:
-        if (propName === 'code') { // Special case for code input
+        if (propName === 'code') {
           return (
             <textarea
               {...commonProps}
@@ -156,7 +152,6 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
             {...commonProps}
             rows={5}
             className="w-full bg-gray-700 border border-gray-600 rounded p-3 font-mono text-white text-xs focus:outline-none focus:border-blue-500 resize-y"
-            // Fix: Use propName as fallback for the placeholder text
             placeholder={`Enter JSON for ${prop.title || propName}`}
           />
         );
@@ -187,7 +182,6 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Tool Form */}
         <div className="w-full md:w-1/2 p-4 border-r border-gray-700 overflow-y-auto">
           {selectedTool ? (
             <form className="space-y-4">
@@ -218,7 +212,6 @@ const TestToolPage: React.FC<TestToolPageProps> = ({ harEntries }) => {
           )}
         </div>
 
-        {/* Tool Output */}
         <div className="w-full md:w-1/2 p-4 flex flex-col bg-gray-800 overflow-hidden">
           <div className="flex items-center justify-between border-b border-gray-700 pb-3 mb-3">
             <h3 className="text-lg font-semibold text-gray-200">Tool Output</h3>

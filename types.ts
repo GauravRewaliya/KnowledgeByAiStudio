@@ -87,6 +87,23 @@ export interface ChatMessage {
   text: string;
 }
 
+// Project Management Types
+export interface ProjectMetadata {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  requestCount: number;
+  entityCount: number;
+  size: number; // Approximate size in bytes
+}
+
+export interface ProjectData extends ProjectMetadata {
+  harEntries: HarEntryWrapper[];
+  knowledgeData: KnowledgeGraphData;
+  chatHistory: ChatMessage[];
+}
+
 export interface ProjectBackup {
   version: string;
   timestamp: string;
@@ -98,9 +115,39 @@ export interface ProjectBackup {
 
 // UI State Types
 export enum ViewMode {
-  UPLOAD = 'UPLOAD',
+  PROJECTS = 'PROJECTS',
+  UPLOAD = 'UPLOAD', // Kept for adding files to active project
   EXPLORE = 'EXPLORE',
   GRAPH = 'GRAPH',
   TEST_TOOLS = 'TEST_TOOLS',
   SETTINGS = 'SETTINGS'
+}
+
+export interface ProjectState {
+  // Global
+  projects: ProjectMetadata[];
+  activeProjectId: string | null;
+  activeProject: ProjectData | null;
+  
+  // UI
+  viewMode: ViewMode;
+  isLoading: boolean;
+  error: string | null;
+
+  // Actions
+  init: () => Promise<void>;
+  createProject: (name: string, initialHarFile?: File) => Promise<void>;
+  openProject: (id: string) => Promise<void>;
+  closeProject: () => void;
+  deleteProject: (id: string) => Promise<void>;
+  importProjectFromFile: (file: File) => Promise<void>;
+  renameProject: (id: string, newName: string) => Promise<void>;
+  setViewMode: (mode: ViewMode) => void;
+  
+  // Active Project Actions
+  addHarFile: (file: File) => Promise<void>;
+  setHarEntries: (entries: HarEntryWrapper[]) => void;
+  setKnowledgeData: (data: KnowledgeGraphData | ((prev: KnowledgeGraphData) => KnowledgeGraphData)) => void;
+  setChatMessages: (messages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
+  importProjectData: (backup: ProjectBackup) => Promise<void>;
 }

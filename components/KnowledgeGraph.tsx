@@ -1,14 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as d3 from 'd3';
-import { KnowledgeGraphData, ExtractedEntity } from '../types';
+import { 
+  select, 
+  forceSimulation, 
+  forceLink, 
+  forceManyBody, 
+  forceCenter, 
+  forceCollide, 
+  zoom as d3Zoom, 
+  drag as d3Drag 
+} from 'd3';
+import { ExtractedEntity } from '../types';
+import { useProjectStore } from '../store/projectStore';
 import { ZoomIn, ZoomOut, RefreshCw } from 'lucide-react';
 
 interface KnowledgeGraphProps {
-  data: KnowledgeGraphData;
-  onNodeClick: (node: ExtractedEntity) => void;
+  onNodeClick?: (node: ExtractedEntity) => void;
 }
 
-const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) => {
+const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
+  const { activeProject } = useProjectStore();
+  const data = activeProject?.knowledgeData || { nodes: [], links: [] };
+
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -19,23 +31,20 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
     const width = wrapperRef.current.clientWidth;
     const height = wrapperRef.current.clientHeight;
 
-    const svg = d3.select(svgRef.current);
+    const svg = select(svgRef.current);
     svg.selectAll("*").remove(); // Clear previous
 
-    // Prepare data
     const nodes = data.nodes.map(d => ({ ...d }));
     const links = data.links.map(d => ({ ...d }));
 
-    // Simulation
-    const simulation = d3.forceSimulation(nodes as any)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(100))
-      .force("charge", d3.forceManyBody().strength(-200))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide(30));
+    const simulation = forceSimulation(nodes as any)
+      .force("link", forceLink(links).id((d: any) => d.id).distance(100))
+      .force("charge", forceManyBody().strength(-200))
+      .force("center", forceCenter(width / 2, height / 2))
+      .force("collide", forceCollide(30));
 
-    // Zoom behavior
     const g = svg.append("g");
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
+    const zoom = d3Zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
@@ -44,7 +53,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
 
     svg.call(zoom);
 
-    // Links
     const link = g.append("g")
       .attr("stroke", "#4b5563")
       .attr("stroke-opacity", 0.6)
@@ -53,7 +61,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
       .join("line")
       .attr("stroke-width", 1.5);
 
-    // Nodes
     const node = g.append("g")
       .attr("stroke", "#fff")
       .attr("stroke-width", 1.5)
@@ -62,19 +69,17 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
       .join("circle")
       .attr("r", 8)
       .attr("fill", (d: any) => {
-          // Color by Type
           if (d.type === 'Project') return '#3b82f6';
           if (d.type === 'Exam') return '#10b981';
           if (d.type === 'Paper') return '#f59e0b';
           if (d.type === 'Question') return '#ef4444';
           return '#6b7280';
       })
-      .call(d3.drag<any, any>()
+      .call(d3Drag<any, any>()
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended));
 
-    // Labels
     const text = g.append("g")
         .selectAll("text")
         .data(nodes)
@@ -82,13 +87,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
         .text((d: any) => d.label)
         .attr("x", 12)
         .attr("y", 4)
-        .attr("fill", "#cbd5e1") // gray-300
+        .attr("fill", "#cbd5e1") 
         .attr("font-size", "10px")
         .attr("pointer-events", "none");
 
-    // Click handler
     node.on("click", (event, d: any) => {
-        onNodeClick(d as ExtractedEntity);
+        if (onNodeClick) onNodeClick(d as ExtractedEntity);
     });
 
     simulation.on("tick", () => {
@@ -124,7 +128,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClick }) =>
       event.subject.fy = null;
     }
     
-    // Cleanup
     return () => {
       simulation.stop();
     };
