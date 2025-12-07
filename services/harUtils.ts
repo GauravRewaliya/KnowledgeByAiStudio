@@ -30,8 +30,6 @@ export const summarizeJsonStructure = (obj: any, depth = 0): any => {
     if (Array.isArray(obj)) {
         if (obj.length === 0) return [];
         // Return first item as sample + length indicator, if possible
-        // The previous behavior `[`<Array of ${obj.length} items. Sample:>`, summarizeJsonStructure(obj[0], depth + 1)];` was a bit too verbose for Gemini.
-        // Let's simplify to just the first item's schema for brevity, and a string for empty/short arrays.
         if (obj.length > 0) {
             return [summarizeJsonStructure(obj[0], depth + 1)];
         }
@@ -51,4 +49,50 @@ export const summarizeJsonStructure = (obj: any, depth = 0): any => {
     }
     
     return obj;
+};
+
+/**
+ * Generates a cURL command from a HAR request object.
+ */
+export const generateCurlCommand = (request: any): string => {
+    const parts: string[] = [];
+    
+    // Basic command and URL
+    // Escape single quotes in URL just in case
+    const url = request.url.replace(/'/g, "'\\''");
+    parts.push(`curl '${url}'`);
+    
+    // Method
+    parts.push(`-X '${request.method}'`);
+    
+    // Headers
+    if (request.headers) {
+        request.headers.forEach((header: any) => {
+            // Skip pseudo-headers
+            if (header.name.startsWith(':')) return;
+            
+            // Skip content-length as it's auto-calculated by curl if body exists.
+            // Sending a mismatching content-length can cause the server to hang or error.
+            if (header.name.toLowerCase() === 'content-length') return;
+
+            // Escape single quotes in header values
+            const value = header.value.replace(/'/g, "'\\''");
+            parts.push(`-H '${header.name}: ${value}'`);
+        });
+    }
+
+    // Body
+    if (request.postData && request.postData.text) {
+        // Escape single quotes in the body
+        const body = request.postData.text.replace(/'/g, "'\\''");
+        parts.push(`--data-raw '${body}'`);
+    }
+
+    // Compression handling to avoid binary output warning
+    // Browser requests usually include Accept-Encoding: gzip. 
+    // curl needs --compressed to decode it, otherwise it prints binary and warns the user.
+    parts.push('--compressed');
+    
+    // Join with line continuation and indentation
+    return parts.join(' \\\n  ');
 };

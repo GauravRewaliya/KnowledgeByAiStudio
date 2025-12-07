@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { HarEntryWrapper } from '../types';
-import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FolderOpen, FileText } from 'lucide-react';
+import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FolderOpen, FileText, Terminal, CheckCircle2 } from 'lucide-react';
 import JsonViewer from './JsonViewer';
+import { generateCurlCommand } from '../services/harUtils';
 
 interface HarViewerProps {
   entries: HarEntryWrapper[];
@@ -23,6 +24,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
   
   // State for delete confirmation modal
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [curlCopied, setCurlCopied] = useState(false);
 
   // Parse JSON content for the selected entry
   const selectedEntry = useMemo(() => entries.find(e => e._id === selectedId), [entries, selectedId]);
@@ -195,6 +197,16 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
     }
   };
 
+  // Copy Curl
+  const handleCopyCurl = () => {
+    if (selectedEntry) {
+        const cmd = generateCurlCommand(selectedEntry.request);
+        navigator.clipboard.writeText(cmd);
+        setCurlCopied(true);
+        setTimeout(() => setCurlCopied(false), 2000);
+    }
+  };
+
   // Waterfall
   const startTime = useMemo(() => entries.length ? Math.min(...entries.map(e => new Date(e.startedDateTime).getTime())) : 0, [entries]);
   const endTime = useMemo(() => entries.length ? Math.max(...entries.map(e => new Date(e.startedDateTime).getTime() + e.time)) : 0, [entries]);
@@ -292,7 +304,6 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
                                     {item.isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                 </button>
                                 <div onClick={() => toggleGroupSelection(item.key)} className="cursor-pointer">
-                                     {/* We can't easily calculate 'is all group selected' cheaply here without pass, so just show a generic 'Toggle' square or computed if passed. Simplified: always square for toggle. */}
                                      <Square size={14} className="text-gray-600 hover:text-gray-400" />
                                 </div>
                                 <div className="flex items-center gap-2 font-semibold text-gray-300 text-xs">
@@ -372,7 +383,16 @@ const HarViewer: React.FC<HarViewerProps> = ({ entries, setEntries, onAddHar }) 
                          <span>{selectedEntry.request.method}</span>
                     </div>
                  </div>
-                 <button onClick={() => setSelectedId(null)} className="text-gray-500 hover:text-white" title="Close"><ArrowRight size={18} /></button>
+                 <div className="flex items-center gap-2">
+                     <button 
+                        onClick={handleCopyCurl}
+                        className="p-1.5 text-gray-500 hover:text-white rounded hover:bg-gray-700 transition-colors relative"
+                        title="Copy as cURL"
+                     >
+                        {curlCopied ? <CheckCircle2 size={16} className="text-green-500" /> : <Terminal size={16} />}
+                     </button>
+                     <button onClick={() => setSelectedId(null)} className="p-1.5 text-gray-500 hover:text-white rounded hover:bg-gray-700" title="Close"><ArrowRight size={18} /></button>
+                 </div>
              </div>
              {/* ... Reuse existing detail content ... */}
              <div className="flex-1 overflow-y-auto p-4 space-y-6">
