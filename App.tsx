@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2 } from 'lucide-react';
+import { Upload, FileText, Share2, MessageSquare, Activity, BarChart2, FlaskConical } from 'lucide-react';
 import HarViewer from './components/HarViewer';
-import DataTransformer from './components/DataTransformer';
+import DataTransformer from './components/DataTransformer'; // Keep for now, might deprecate fully later
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
+import TestToolPage from './components/TestToolPage'; // New import
 import { HarFile, HarEntryWrapper, ExtractedEntity, KnowledgeGraphData, ViewMode } from './types';
+import { allToolDefinitions } from './tools'; // Import for initial tool selection
 
 const App: React.FC = () => {
   const [harEntries, setHarEntries] = useState<HarEntryWrapper[]>([]);
@@ -99,13 +101,19 @@ const App: React.FC = () => {
                 icon={<BarChart2 size={20} />} 
                 label="Explore & Clean" 
             />
-            {/* Deprecated explicit transform view in favor of AI Agent */}
             <NavButton 
                 active={viewMode === ViewMode.GRAPH} 
                 onClick={() => setViewMode(ViewMode.GRAPH)} 
                 disabled={harEntries.length === 0}
                 icon={<Share2 size={20} />} 
                 label="Knowledge Graph" 
+            />
+            <NavButton 
+                active={viewMode === ViewMode.TEST_TOOLS} 
+                onClick={() => setViewMode(ViewMode.TEST_TOOLS)} 
+                disabled={harEntries.length === 0 || allToolDefinitions.length === 0}
+                icon={<FlaskConical size={20} />} 
+                label="Test Tools" 
             />
         </div>
 
@@ -172,10 +180,16 @@ const App: React.FC = () => {
             </div>
         )}
 
+        {viewMode === ViewMode.TEST_TOOLS && harEntries.length > 0 && (
+            <div className="flex-1 flex w-full overflow-hidden">
+                <TestToolPage harEntries={harEntries} />
+            </div>
+        )}
+
         {/* Chat Drawer */}
         <div className={`
             absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-all duration-300 ease-in-out
-            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'translate-x-0  invisible opacity-0'}
+            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'translate-x-full invisible opacity-0'}
             w-full md:w-[450px]
         `}>
             {/* The ChatInterface component now handles its own close button */}

@@ -81,5 +81,6 @@ export interface KnowledgeGraphData {
 export enum ViewMode {
   UPLOAD = 'UPLOAD',
   EXPLORE = 'EXPLORE',
-  GRAPH = 'GRAPH'
+  GRAPH = 'GRAPH',
+  TEST_TOOLS = 'TEST_TOOLS', // New view mode for testing AI tools
 }
