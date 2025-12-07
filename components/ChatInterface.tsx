@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Loader2, Sparkles, Database } from 'lucide-react';
+import { Send, User, Bot, Loader2, Sparkles, Database, X } from 'lucide-react'; // Import X icon
 import { runHarAgent } from '../services/geminiService';
 import { HarEntryWrapper, ExtractedEntity } from '../types';
 
 interface ChatInterfaceProps {
   harData: HarEntryWrapper[];
   onExtractData: (entities: ExtractedEntity[]) => void;
+  onClose: () => void; // New prop for closing the chat
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData, onClose }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Array<{ role: string; text: string }>>([
     { role: 'model', text: 'Hello! I am ready to analyze your HAR file. I can inspect requests, understand the data structure, and extract specific information into the Knowledge Graph.' }
@@ -72,9 +73,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ harData, onExtractData })
             <Sparkles className="text-yellow-400 w-5 h-5" />
             <h3 className="font-semibold text-gray-200">HarMind Agent</h3>
         </div>
-        <div className="text-xs text-gray-500 flex items-center gap-1">
-            <Database size={12} />
-            {harData.filter(e => e._selected).length > 0 ? `${harData.filter(e => e._selected).length} selected` : 'All entries'}
+        <div className="flex items-center gap-2"> {/* Wrapper for stats and close button */}
+            <div className="text-xs text-gray-500 flex items-center gap-1">
+                <Database size={12} />
+                {harData.filter(e => e._selected).length > 0 ? `${harData.filter(e => e._selected).length} selected` : 'All entries'}
+            </div>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors" title="Close chat">
+                <X size={16} />
+            </button>
         </div>
       </div>
       

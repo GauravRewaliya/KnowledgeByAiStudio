@@ -174,17 +174,15 @@ const App: React.FC = () => {
 
         {/* Chat Drawer */}
         <div className={`
-            absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-transform duration-300 ease-in-out
-            ${isChatOpen ? 'translate-x-0' : 'translate-x-full'}
+            absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-all duration-300 ease-in-out
+            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'translate-x-0  invisible opacity-0'}
             w-full md:w-[450px]
         `}>
-            <div className="flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700 md:hidden">
-                <span className="font-bold text-gray-300 px-2">AI Agent</span>
-                <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400">Close</button>
-            </div>
+            {/* The ChatInterface component now handles its own close button */}
             <ChatInterface 
                 harData={harEntries} 
                 onExtractData={handleAddEntity}
+                onClose={() => setIsChatOpen(false)} // Pass the close handler
             />
         </div>
 
