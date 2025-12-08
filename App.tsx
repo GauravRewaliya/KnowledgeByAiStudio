@@ -1,12 +1,14 @@
 
 import React, { useEffect, useRef } from 'react';
-import { Upload, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings, ArrowLeft } from 'lucide-react';
+import { Upload, Share2, MessageSquare, Activity, BarChart2, FlaskConical, Settings, ArrowLeft, Database, Globe } from 'lucide-react';
 import HarViewer from './components/HarViewer';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import TestToolPage from './components/TestToolPage'; 
 import SettingsPage from './components/SettingsPage';
 import ProjectManager from './components/ProjectManager';
+import KnowledgeDbPanel from './components/KnowledgeDbPanel';
+import BrowserPanel from './components/BrowserPanel';
 import { useProjectStore } from './store/projectStore';
 import { ViewMode, ExtractedEntity } from './types';
 import { allToolDefinitions } from './tools'; 
@@ -76,6 +78,18 @@ const App: React.FC = () => {
                 label="Explore & Clean" 
             />
             <NavButton 
+                active={viewMode === ViewMode.BROWSER} 
+                onClick={() => setViewMode(ViewMode.BROWSER)} 
+                icon={<Globe size={20} />} 
+                label="Virtual Browser" 
+            />
+            <NavButton 
+                active={viewMode === ViewMode.KNOWLEDGE_DB} 
+                onClick={() => setViewMode(ViewMode.KNOWLEDGE_DB)} 
+                icon={<Database size={20} />} 
+                label="Knowledge DB" 
+            />
+            <NavButton 
                 active={viewMode === ViewMode.GRAPH} 
                 onClick={() => setViewMode(ViewMode.GRAPH)} 
                 disabled={harEntries.length === 0}
@@ -134,6 +148,18 @@ const App: React.FC = () => {
              )
         )}
 
+        {viewMode === ViewMode.BROWSER && (
+            <div className="flex-1 flex w-full overflow-hidden">
+                <BrowserPanel />
+            </div>
+        )}
+
+        {viewMode === ViewMode.KNOWLEDGE_DB && (
+            <div className="flex-1 flex w-full overflow-hidden">
+                <KnowledgeDbPanel />
+            </div>
+        )}
+
         {viewMode === ViewMode.GRAPH && (
             <div className="flex-1 relative">
                 <KnowledgeGraph />
@@ -161,7 +187,7 @@ const App: React.FC = () => {
         {/* Chat Drawer */}
         <div className={`
             absolute top-0 right-0 h-full bg-gray-900 border-l border-gray-700 shadow-2xl z-30 flex flex-col transition-all duration-300 ease-in-out
-            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'invisible opacity-0'}
+            ${isChatOpen ? 'translate-x-0 visible opacity-100' : 'translate-x-full invisible opacity-0'}
             w-full md:w-[450px]
         `}>
             <ChatInterface onClose={() => setIsChatOpen(false)} />

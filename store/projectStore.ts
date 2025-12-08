@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { ProjectState, ProjectData, ProjectMetadata, ViewMode, HarFile, HarEntryWrapper, KnowledgeGraphData, ChatMessage, ProjectBackup } from '../types';
+import { ProjectState, ProjectData, ProjectMetadata, ViewMode, HarFile, HarEntryWrapper, KnowledgeGraphData, ChatMessage, ProjectBackup, ScrapingEntry, ProcessingStatus, BrowserSession } from '../types';
 import { storageService } from '../services/storageService';
 
 // Debounce helper for auto-save
@@ -53,8 +53,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                 }));
             } catch (e) {
                 console.error("Failed to parse initial HAR", e);
-                // Continue with empty project but show error? 
-                // For now just continue
             }
         }
 
@@ -68,7 +66,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             size: 0,
             harEntries,
             knowledgeData: { nodes: [], links: [] },
-            chatHistory: [{ role: 'model', text: 'Project created. Ready to analyze.' }]
+            chatHistory: [{ role: 'model', text: 'Project created. Ready to analyze.' }],
+            scrapingEntries: [],
+            browserSessions: [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }]
         };
 
         await storageService.saveProject(newProject);
@@ -101,15 +101,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                 updatedAt: now,
                 requestCount: backup.harEntries.length,
                 entityCount: backup.knowledgeData.nodes.length,
-                size: 0, // Will be calculated by saveProject
+                size: 0,
                 harEntries: backup.harEntries,
                 knowledgeData: backup.knowledgeData,
-                chatHistory: backup.chatHistory || []
+                chatHistory: backup.chatHistory || [],
+                scrapingEntries: backup.scrapingEntries || [],
+                browserSessions: backup.browserSessions || [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }]
             };
 
             await storageService.saveProject(newProject);
             
-            // Refresh list and add new project
+            // Refresh list
             const projects = await storageService.getAllMetadata();
             projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
             
@@ -127,16 +129,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             const updatedProject = { ...project, name: newName, updatedAt: new Date().toISOString() };
             await storageService.saveProject(updatedProject);
 
-            // Update state list
             set(state => ({
                 projects: state.projects.map(p => p.id === id ? { ...p, name: newName, updatedAt: updatedProject.updatedAt } : p)
             }));
 
-            // If it's the active project, update it too
             if (get().activeProjectId === id) {
                 set({ activeProject: updatedProject });
             }
-
         } catch (e: any) {
             console.error("Failed to rename project", e);
         }
@@ -147,6 +146,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             set({ isLoading: true, error: null });
             const project = await storageService.getProject(id);
             if (!project) throw new Error("Project not found");
+            
+            // Ensure schema compatibility
+            if (!project.scrapingEntries) project.scrapingEntries = [];
+            if (!project.browserSessions) project.browserSessions = [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: new Date().toISOString() }];
             
             set({ 
                 activeProjectId: id, 
@@ -165,7 +168,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             activeProject: null, 
             viewMode: ViewMode.PROJECTS 
         });
-        // Refresh list to show updated stats
         get().init(); 
     },
 
@@ -270,10 +272,130 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             harEntries: backup.harEntries || [],
             knowledgeData: backup.knowledgeData || { nodes: [], links: [] },
             chatHistory: backup.chatHistory || [],
+            scrapingEntries: backup.scrapingEntries || [],
+            browserSessions: backup.browserSessions || store.activeProject.browserSessions,
             updatedAt: new Date().toISOString()
         };
 
         set({ activeProject: updatedProject });
-        await storageService.saveProject(updatedProject); // Immediate save
+        await storageService.saveProject(updatedProject); 
+    },
+
+    // --- Knowledge DB Actions ---
+
+    syncHarToDb: (entries: HarEntryWrapper[]) => {
+        const store = get();
+        if (!store.activeProject) return;
+
+        const newScrapingEntries: ScrapingEntry[] = entries.map(e => {
+            const urlObj = new URL(e.request.url);
+            const sourceTypeKey = `${e.request.method}:${urlObj.pathname}`;
+            
+            return {
+                id: crypto.randomUUID(),
+                source_type_key: sourceTypeKey,
+                url: e.request.url,
+                request: e.request,
+                response: {
+                    status: e.response.status,
+                    content: { ...e.response.content, text: e.response.content.text?.substring(0, 1000) + '... (truncated for preview)' } // Keep full content in HAR, minimal in DB initial view
+                },
+                filterer_json: {},
+                converter_code: '',
+                final_clean_response: {},
+                processing_status: ProcessingStatus.Unprocessed,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+        });
+
+        const updatedProject = {
+            ...store.activeProject,
+            scrapingEntries: [...(store.activeProject.scrapingEntries || []), ...newScrapingEntries],
+            updatedAt: new Date().toISOString()
+        };
+
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+
+    updateScrapingEntry: (id: string, updates: Partial<ScrapingEntry>) => {
+        const store = get();
+        if (!store.activeProject) return;
+
+        const updatedEntries = (store.activeProject.scrapingEntries || []).map(e => 
+            e.id === id ? { ...e, ...updates, updated_at: new Date().toISOString() } : e
+        );
+
+        const updatedProject = {
+            ...store.activeProject,
+            scrapingEntries: updatedEntries,
+            updatedAt: new Date().toISOString()
+        };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+
+    deleteScrapingEntry: (id: string) => {
+        const store = get();
+        if (!store.activeProject) return;
+
+        const updatedEntries = (store.activeProject.scrapingEntries || []).filter(e => e.id !== id);
+
+        const updatedProject = {
+            ...store.activeProject,
+            scrapingEntries: updatedEntries,
+            updatedAt: new Date().toISOString()
+        };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+
+    setBackendUrl: (url: string) => {
+        const store = get();
+        if (!store.activeProject) return;
+        const updatedProject = { ...store.activeProject, backendUrl: url };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+
+    // --- Browser Session Actions ---
+
+    createBrowserSession: (name: string) => {
+        const store = get();
+        if (!store.activeProject) return;
+        
+        const newSession: BrowserSession = {
+            id: crypto.randomUUID(),
+            name,
+            createdAt: new Date().toISOString()
+        };
+
+        const updatedProject = {
+            ...store.activeProject,
+            browserSessions: [...(store.activeProject.browserSessions || []), newSession],
+            updatedAt: new Date().toISOString()
+        };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+
+    deleteBrowserSession: (id: string) => {
+        const store = get();
+        if (!store.activeProject) return;
+
+        const updatedSessions = (store.activeProject.browserSessions || []).filter(s => s.id !== id);
+        // Ensure at least one session exists
+        if (updatedSessions.length === 0) {
+            updatedSessions.push({ id: crypto.randomUUID(), name: 'Default Session', createdAt: new Date().toISOString() });
+        }
+
+        const updatedProject = {
+            ...store.activeProject,
+            browserSessions: updatedSessions,
+            updatedAt: new Date().toISOString()
+        };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
     }
 }));

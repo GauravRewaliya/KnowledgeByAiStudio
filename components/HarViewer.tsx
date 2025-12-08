@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { HarEntryWrapper } from '../types';
 import { useProjectStore } from '../store/projectStore';
-import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FileText, Terminal, CheckCircle2 } from 'lucide-react';
+import { Search, Layers, Clock, CheckSquare, Square, Trash2, ArrowRight, AlertTriangle, ChevronRight, ChevronDown, FilePlus, Folder, FileText, Terminal, CheckCircle2, Database } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 import { generateCurlCommand } from '../services/harUtils';
 
@@ -15,7 +15,7 @@ type GroupMode = 'NONE' | 'FILE' | 'ENDPOINT';
 
 const HarViewer: React.FC<HarViewerProps> = ({ onAddHar }) => {
   // Store Hooks
-  const { activeProject, setHarEntries } = useProjectStore();
+  const { activeProject, setHarEntries, syncHarToDb } = useProjectStore();
   const entries = activeProject?.harEntries || [];
   
   // Local UI State
@@ -26,6 +26,7 @@ const HarViewer: React.FC<HarViewerProps> = ({ onAddHar }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [curlCopied, setCurlCopied] = useState(false);
+  const [syncedMsg, setSyncedMsg] = useState(false);
 
   // Helper to update global state safely
   const updateGlobalEntries = (newEntries: HarEntryWrapper[]) => {
@@ -153,6 +154,15 @@ const HarViewer: React.FC<HarViewerProps> = ({ onAddHar }) => {
     setSelectedId(null);
     setShowDeleteConfirm(false);
   }, [entries]);
+
+  const handleSyncToDb = () => {
+      const selected = entries.filter(e => e._selected);
+      if (selected.length === 0) return;
+      
+      syncHarToDb(selected);
+      setSyncedMsg(true);
+      setTimeout(() => setSyncedMsg(false), 2000);
+  };
   
   // --- Keyboard & Styling (unchanged logic) ---
   useEffect(() => {
@@ -268,13 +278,26 @@ const HarViewer: React.FC<HarViewerProps> = ({ onAddHar }) => {
                         <button onClick={() => setViewType('WATERFALL')} className={`p-1 ${viewType === 'WATERFALL' ? 'bg-gray-700 text-white' : 'hover:text-white'}`}><Clock size={12} /></button>
                     </div>
                 </div>
-                <button 
-                    onClick={handleDeleteClick} 
-                    className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50" 
-                    disabled={selectedCount === 0}
-                >
-                    <Trash2 size={12} /> {selectedCount}
-                </button>
+                
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handleSyncToDb}
+                        disabled={selectedCount === 0}
+                        className="flex items-center gap-1 text-purple-400 hover:text-purple-300 disabled:opacity-50"
+                        title="Sync selected to Knowledge DB"
+                    >
+                         {syncedMsg ? <CheckCircle2 size={12} className="text-green-500" /> : <Database size={12} />}
+                         {syncedMsg ? 'Synced!' : 'To DB'}
+                    </button>
+                    
+                    <button 
+                        onClick={handleDeleteClick} 
+                        className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50 ml-2" 
+                        disabled={selectedCount === 0}
+                    >
+                        <Trash2 size={12} /> {selectedCount}
+                    </button>
+                </div>
             </div>
         </div>
 

@@ -87,6 +87,41 @@ export interface ChatMessage {
   text: string;
 }
 
+// --- Knowledge DB / ETL Pipeline Types ---
+
+export enum ProcessingStatus {
+  Unprocessed = 'unprocessed',
+  SpFilterer = 'sp_filterer',
+  Filtered = 'filtered',
+  SpConverter = 'sp_converter',
+  Converted = 'converted',
+  SpConvert = 'sp_convert',
+  FinalResponse = 'final_response'
+}
+
+export interface ScrapingEntry {
+  id: string; // Unique UUID
+  source_type_key: string; // e.g., 'POST:/api/v1/data'
+  url: string;
+  request: HarRequest;
+  response: HarResponse | Record<string, any>; // Can be HAR response or JSON from proxy
+  filterer_json: Record<string, any>; // Schema/Filter definition
+  converter_code: string; // JS/Ruby code string
+  final_clean_response: Record<string, any>;
+  processing_status: ProcessingStatus;
+  workspace_id?: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Browser / Session Types ---
+export interface BrowserSession {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 // Project Management Types
 export interface ProjectMetadata {
   id: string;
@@ -102,6 +137,9 @@ export interface ProjectData extends ProjectMetadata {
   harEntries: HarEntryWrapper[];
   knowledgeData: KnowledgeGraphData;
   chatHistory: ChatMessage[];
+  scrapingEntries: ScrapingEntry[]; 
+  browserSessions: BrowserSession[]; // New: Sessions for the virtual browser
+  backendUrl?: string; 
 }
 
 export interface ProjectBackup {
@@ -111,6 +149,8 @@ export interface ProjectBackup {
   harEntries: HarEntryWrapper[];
   knowledgeData: KnowledgeGraphData;
   chatHistory: ChatMessage[];
+  scrapingEntries?: ScrapingEntry[];
+  browserSessions?: BrowserSession[];
 }
 
 // UI State Types
@@ -119,6 +159,8 @@ export enum ViewMode {
   UPLOAD = 'UPLOAD', // Kept for adding files to active project
   EXPLORE = 'EXPLORE',
   GRAPH = 'GRAPH',
+  KNOWLEDGE_DB = 'KNOWLEDGE_DB',
+  BROWSER = 'BROWSER', // New View
   TEST_TOOLS = 'TEST_TOOLS',
   SETTINGS = 'SETTINGS'
 }
@@ -150,4 +192,14 @@ export interface ProjectState {
   setKnowledgeData: (data: KnowledgeGraphData | ((prev: KnowledgeGraphData) => KnowledgeGraphData)) => void;
   setChatMessages: (messages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
   importProjectData: (backup: ProjectBackup) => Promise<void>;
+  
+  // Knowledge DB Actions
+  syncHarToDb: (entries: HarEntryWrapper[]) => void;
+  updateScrapingEntry: (id: string, updates: Partial<ScrapingEntry>) => void;
+  deleteScrapingEntry: (id: string) => void;
+  setBackendUrl: (url: string) => void;
+
+  // Browser Actions
+  createBrowserSession: (name: string) => void;
+  deleteBrowserSession: (id: string) => void;
 }

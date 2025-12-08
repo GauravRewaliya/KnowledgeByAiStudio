@@ -1,12 +1,13 @@
 
-import React, { useRef, useState } from 'react';
-import { Download, Upload, Save, FileJson, Database, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Download, Upload, Save, FileJson, Database, AlertCircle, CheckCircle2, Server } from 'lucide-react';
 import { useProjectStore } from '../store/projectStore';
 import { ProjectBackup } from '../types';
 import { Share2 } from 'lucide-react';
+import { checkBackendHealth } from '../services/backendService';
 
 const SettingsPage: React.FC = () => {
-  const { activeProject, importProjectData } = useProjectStore();
+  const { activeProject, importProjectData, setBackendUrl } = useProjectStore();
   
   // Guard clause if no project active (though App router handles this)
   const harEntries = activeProject?.harEntries || [];
@@ -16,6 +17,12 @@ const SettingsPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'fail' | null>(null);
+  const [localUrl, setLocalUrl] = useState(activeProject?.backendUrl || '');
+
+  useEffect(() => {
+      setLocalUrl(activeProject?.backendUrl || '');
+  }, [activeProject?.backendUrl]);
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);
@@ -31,7 +38,8 @@ const SettingsPage: React.FC = () => {
       name: activeProject?.name || "HarMind_Backup",
       harEntries,
       knowledgeData,
-      chatHistory: chatMessages
+      chatHistory: chatMessages,
+      scrapingEntries: activeProject?.scrapingEntries
     };
     downloadJson(backup, `harmind-backup-${activeProject?.name.replace(/\s+/g,'_')}-${new Date().toISOString().slice(0,10)}.json`);
     showSuccess("Project backup exported successfully.");
@@ -66,6 +74,15 @@ const SettingsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleSaveBackend = async () => {
+      setBackendUrl(localUrl);
+      setBackendStatus('checking');
+      const isOk = await checkBackendHealth(localUrl);
+      setBackendStatus(isOk ? 'ok' : 'fail');
+      if (isOk) showSuccess("Backend URL saved and verified.");
+      else setImportError("Backend unreachable. Saved anyway.");
+      setTimeout(() => setImportError(null), 3000);
+  };
 
   // --- Import Logic ---
 
@@ -129,7 +146,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                     <div>
                         <h3 className="text-lg font-semibold text-white">Project Backup</h3>
-                        <p className="text-xs text-gray-400">Save full state (HAR, Graph, Chat)</p>
+                        <p className="text-xs text-gray-400">Save full state (HAR, Graph, Chat, DB)</p>
                     </div>
                 </div>
                 <div className="space-y-3">
@@ -188,11 +205,46 @@ const SettingsPage: React.FC = () => {
             </div>
 
             <div className="md:col-span-2 bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-green-600/20 text-green-400 rounded-lg">
+                        <Server size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-white">Proxy Backend</h3>
+                        <p className="text-xs text-gray-400">Configure local backend for cURL execution</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input 
+                        type="text" 
+                        value={localUrl}
+                        onChange={(e) => setLocalUrl(e.target.value)}
+                        placeholder="http://localhost:3000"
+                        className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500"
+                    />
+                    <button 
+                        onClick={handleSaveBackend}
+                        className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                    >
+                        Save
+                    </button>
+                </div>
+                {backendStatus && (
+                    <div className="mt-2 text-xs flex items-center gap-1">
+                        Status: 
+                        {backendStatus === 'checking' && <span className="text-yellow-400">Checking...</span>}
+                        {backendStatus === 'ok' && <span className="text-green-400">Connected</span>}
+                        {backendStatus === 'fail' && <span className="text-red-400">Unreachable</span>}
+                    </div>
+                )}
+            </div>
+
+            <div className="md:col-span-2 bg-gray-800 border border-gray-700 rounded-xl p-6">
                 <h3 className="text-lg font-semibold text-white mb-4">Current Project Stats</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <StatCard label="Total Requests" value={harEntries.length} />
                     <StatCard label="Selected Requests" value={harEntries.filter(e => e._selected).length} />
-                    <StatCard label="Extracted Entities" value={knowledgeData.nodes.length} />
+                    <StatCard label="DB Entries" value={activeProject?.scrapingEntries?.length || 0} />
                     <StatCard label="Chat Messages" value={chatMessages.length} />
                 </div>
             </div>

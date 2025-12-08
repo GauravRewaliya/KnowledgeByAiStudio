@@ -31,7 +31,7 @@ export const summarizeJsonStructure = (obj: any, depth = 0): any => {
         if (obj.length === 0) return [];
         // Return first item as sample + length indicator, if possible
         if (obj.length > 0) {
-            return [summarizeJsonStructure(obj[0], depth + 1)];
+            return [summarizeJsonStructure(obj[0], depth + 1), `... (${obj.length - 1} more items)`];
         }
         return []; // Empty array
     }
@@ -49,6 +49,15 @@ export const summarizeJsonStructure = (obj: any, depth = 0): any => {
     }
     
     return obj;
+};
+
+/**
+ * Truncates text content intelligently.
+ */
+export const truncateContent = (text: string | undefined, maxLength: number): string => {
+    if (!text) return "";
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + `... [content trimmed, total: ${text.length} chars. Call again with higher limit if needed]`;
 };
 
 /**

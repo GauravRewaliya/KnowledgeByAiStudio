@@ -15,6 +15,9 @@ export interface FuncProp {
   step?: number;
   options?: Array<{ label: string; value: string | number }>;
   dataSource?: string; // e.g., 'harEntryIndices' to fetch dynamic options from HAR data
+  
+  // For Array types
+  items?: { type: Type };
 }
 
 export interface ToolDefinition {

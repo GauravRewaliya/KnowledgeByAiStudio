@@ -23,7 +23,7 @@ const geminiTools: FunctionDeclaration[] = allToolDefinitions.map(tool => ({
         {
           type: prop.type,
           description: prop.description,
-          // Add other properties if needed for the model's understanding
+          items: prop.items ? { type: prop.items.type } : undefined
         }
       ])
     ),
@@ -41,24 +41,35 @@ export const runHarAgent = async (
   const model = "gemini-2.5-flash";
 
   const systemInstruction = `
-    You are HarMind, an expert Network Analyst AI.
-    You have access to a HAR file loaded in memory.
+    You are HarMind, an expert Data Engineer & Network Analyst AI.
     
-    YOUR GOAL: Help the user extract insights or specific data from the HAR file.
+    CORE OBJECTIVE: 
+    Analyze HAR files to build a structured Knowledge Database (ScrapingEntries). 
+    Your goal is NOT just to read data, but to create the *logic* (parsers/converters) to extract it efficiently.
     
-    WORKFLOW:
-    1. Start by calling 'get_har_structure' to see what requests are available.
-    2. Analyze the URLs to find relevant API calls (e.g., /api/projects, /graphql).
-    3. Call 'inspect_entry_schema' on interesting entries (by their '_index') to understand their JSON response structure.
-    4. IF the user wants to extract data (like "get all project IDs"), WRITE JavaScript code and call 'run_extraction_code'.
-       - The code you write has access to 'entries' variable (containing HarEntryWrapper objects).
-       - You MUST push extracted data objects to the 'results' array in your code.
-       - Example: entries.forEach(e => { try { const json = JSON.parse(e.response.content.text); if(json.data) results.push(json.data); } catch(err){} });
+    OPERATIONAL MODE - "SMART SCRAPER":
+    1. **Explore First**: Use 'get_har_structure' to filter requests (by method, url part, or index).
+    2. **Inspect Structure**: Use 'inspect_entry_schema' to understand the JSON shape of relevant entries.
+    3. **Peek Content**: Use 'get_response_content' with 'max_length' to see actual values if the schema is ambiguous.
+       - Note: Content is returned as "Trimmed... [call more if want]". Do not request full content unless absolutely necessary.
+    4. **Generate Logic**: 
+       - Instead of outputting massive JSON data to the user, write JavaScript code.
+       - Use 'update_scraping_entry' to save 'converter_code' that parses the response.
+       - Use 'run_extraction_code' if the user asks for immediate extraction into the graph.
     
-    CONSTRAINTS:
-    - Do NOT ask the user to paste JSON. You have the tools to read it.
-    - If a response is huge, the schema tool only shows a sample structure. This is enough to write the extraction code.
-    - Be concise in your text responses.
+    TOOLS:
+    - 'get_har_structure': Filter requests. Supports 'method', 'url_contains', 'indices'.
+    - 'inspect_entry_schema': Get JSON schema for list of indices.
+    - 'get_response_content': Get raw text (truncated).
+    - 'find_similar_parser': Check if we already have logic for this URL pattern.
+    - 'update_scraping_entry': Save your parser/filter logic to the DB.
+    - 'run_extraction_code': Execute one-off extraction code.
+
+    STYLE GUIDE:
+    - Be conversational but professional.
+    - Preserve tokens: Don't repeat large data blocks. Refer to IDs/Indices.
+    - If a user asks "Get me the projects", don't list them all in chat. 
+      Instead, say: "I've identified the 'projects' array in request #12. I'm writing a parser to extract them to the Knowledge Graph." then call the tools to do so.
   `;
 
   const chat = ai.chats.create({
@@ -93,10 +104,11 @@ export const runHarAgent = async (
       try {
         const toolFunc = toolImplementations[name];
         if (toolFunc) {
-          result = toolFunc(harData, args);
+          result = await toolFunc(harData, args); // Await all, just in case
+          
           if (name === 'run_extraction_code' && result.success && onDataExtracted) {
              onDataExtracted(result.data);
-             result = { success: true, count: result.data.length, sample: result.data.slice(0, 2) };
+             result = { success: true, count: result.data.length, sample: result.data.slice(0, 2), note: "Data pushed to graph." };
           }
         } else {
           result = { error: `Tool '${name}' not implemented.` };
@@ -118,5 +130,5 @@ export const runHarAgent = async (
     response = await chat.sendMessage({ message: functionResponses });
   }
 
-  return response.text || "I processed that but have no text response.";
+  return response.text || "I processed the actions but have no text response.";
 };
