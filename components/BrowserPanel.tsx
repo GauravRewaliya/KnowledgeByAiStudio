@@ -2,13 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../store/projectStore';
 import { executeProxyRequest } from '../services/backendService';
-import { Globe, ArrowRight, Loader2, RefreshCw, Plus, Trash2, Code, Eye, AlertCircle, ShieldCheck, ChevronDown, FileText } from 'lucide-react';
+import { Globe, ArrowRight, Loader2, RefreshCw, Plus, Trash2, Code, Eye, AlertCircle, ChevronDown, FileText, ExternalLink, Terminal } from 'lucide-react';
 import JsonViewer from './JsonViewer';
-import { HarEntryWrapper } from '../types';
 import ConfirmModal from './ConfirmModal';
+import { parseCurlCommand } from '../services/harUtils';
 
 const BrowserPanel: React.FC = () => {
-    const { activeProject, createBrowserSession, deleteBrowserSession, addHarFile } = useProjectStore();
+    const { activeProject, createBrowserSession, deleteBrowserSession } = useProjectStore();
     const sessions = activeProject?.browserSessions || [];
     const backendUrl = activeProject?.backendUrl;
     
@@ -24,6 +24,10 @@ const BrowserPanel: React.FC = () => {
     const [newSessionName, setNewSessionName] = useState('');
     const [isCreatingSession, setIsCreatingSession] = useState(false);
 
+    // cURL Import State
+    const [showCurlModal, setShowCurlModal] = useState(false);
+    const [curlInput, setCurlInput] = useState('');
+
     // Confirmation State
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({
         isOpen: false, title: '', message: '', onConfirm: () => {}
@@ -32,10 +36,10 @@ const BrowserPanel: React.FC = () => {
 
     // Response State
     const [responseContent, setResponseContent] = useState<string>('');
-    const [responseType, setResponseType] = useState<string>(''); // Can't reliably infer without headers from proxy
+    const [responseType, setResponseType] = useState<string>(''); 
     const [responseStatus, setResponseStatus] = useState<number | null>(null);
 
-    // Sync active session if list changes (e.g. initial load)
+    // Sync active session if list changes
     useEffect(() => {
         if (!activeSessionId && sessions.length > 0) {
             setActiveSessionId(sessions[0].id);
@@ -79,7 +83,7 @@ const BrowserPanel: React.FC = () => {
             setResponseContent(result.content || '');
             setResponseStatus(result.status);
             
-            // Heuristic content-type detection since Proxy doesn't return headers
+            // Heuristic content-type detection
             let inferredType = 'text/plain';
             const contentTrimmed = (result.content || '').trim();
             if (contentTrimmed.startsWith('{') || contentTrimmed.startsWith('[')) inferredType = 'application/json';
@@ -91,9 +95,6 @@ const BrowserPanel: React.FC = () => {
             if (inferredType === 'application/json') setViewMode('JSON');
             else if (inferredType === 'text/html') setViewMode('PREVIEW');
             else setViewMode('RAW');
-
-            // NOTE: HAR capture via backend is disabled as backend doesn't return full HAR entry currently.
-            // If needed, we would reconstruct it here, but we lack response headers.
             
         } catch (err: any) {
             console.error("Browser navigation error:", err);
@@ -110,11 +111,22 @@ const BrowserPanel: React.FC = () => {
     const renderResponse = () => {
         if (isLoading) return <div className="flex items-center justify-center h-full text-gray-500"><Loader2 className="animate-spin mr-2" /> Loading...</div>;
         if (error) return (
-            <div className="flex flex-col items-center justify-center h-full text-red-400 p-4 text-center">
-                <AlertCircle size={32} className="mb-2" />
-                <p className="font-bold">Request Failed:</p>
-                <p className="text-sm">{error}</p>
-                {!backendUrl && <p className="text-xs text-gray-400 mt-2">Please configure your Backend URL in Settings.</p>}
+            <div className="flex flex-col items-center justify-center h-full text-red-400 p-8 text-center bg-red-900/10">
+                <AlertCircle size={32} className="mb-4" />
+                <h3 className="font-bold text-lg mb-2">Request Failed</h3>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed max-w-md mb-6">{error}</p>
+                
+                {backendUrl && (
+                    <a 
+                        href={backendUrl} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm transition-colors border border-gray-600"
+                    >
+                        <ExternalLink size={16} /> Open Backend URL
+                    </a>
+                )}
+                <p className="text-xs text-gray-500 mt-4">Opening the URL helps clear security warnings for DevTunnels.</p>
             </div>
         );
         if (!responseContent && responseStatus === null) return (
@@ -174,8 +186,25 @@ const BrowserPanel: React.FC = () => {
         });
     };
 
+    const handleCurlImport = () => {
+        try {
+            const parsed = parseCurlCommand(curlInput);
+            if (parsed.url) setUrl(parsed.url);
+            if (parsed.method) setMethod(parsed.method);
+            if (parsed.headers && Object.keys(parsed.headers).length > 0) {
+                setRequestHeaders(JSON.stringify(parsed.headers, null, 2));
+            }
+            if (parsed.body) setRequestBody(parsed.body);
+            
+            setShowCurlModal(false);
+            setCurlInput('');
+        } catch (e) {
+            alert("Failed to parse cURL command");
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full w-full bg-gray-900 text-white">
+        <div className="flex flex-col h-full w-full bg-gray-900 text-white relative">
             <ConfirmModal 
                 isOpen={confirmModal.isOpen}
                 title={confirmModal.title}
@@ -183,6 +212,26 @@ const BrowserPanel: React.FC = () => {
                 onConfirm={confirmModal.onConfirm}
                 onCancel={closeConfirm}
             />
+
+            {/* cURL Modal */}
+            {showCurlModal && (
+                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                     <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl p-6 w-full max-w-2xl">
+                         <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Terminal size={18} /> Import from cURL</h3>
+                         <p className="text-sm text-gray-400 mb-4">Paste a standard cURL command to populate the browser fields.</p>
+                         <textarea 
+                             value={curlInput}
+                             onChange={(e) => setCurlInput(e.target.value)}
+                             placeholder="curl 'https://api.example.com/data' -H 'Authorization: Bearer...' --data '...'"
+                             className="w-full h-32 bg-gray-900 border border-gray-600 rounded p-3 text-xs font-mono text-green-400 focus:outline-none focus:border-blue-500 resize-none mb-4"
+                         />
+                         <div className="flex justify-end gap-3">
+                             <button onClick={() => setShowCurlModal(false)} className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600">Cancel</button>
+                             <button onClick={handleCurlImport} className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 text-white">Import</button>
+                         </div>
+                     </div>
+                 </div>
+            )}
 
             {/* Top Bar - Session & Address */}
             <div className="p-3 border-b border-gray-700 bg-gray-800 flex flex-col gap-2">
@@ -217,6 +266,13 @@ const BrowserPanel: React.FC = () => {
                             <Trash2 size={16} />
                         </button>
                     )}
+                    
+                    <button 
+                         onClick={() => setShowCurlModal(true)}
+                         className="ml-auto flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-xs text-gray-300 hover:text-white transition-colors border border-gray-600"
+                    >
+                        <Terminal size={14} /> Import cURL
+                    </button>
                 </div>
                 
                 {isCreatingSession && (

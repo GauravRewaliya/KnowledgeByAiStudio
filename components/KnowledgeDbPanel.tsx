@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useProjectStore } from '../store/projectStore';
 import { ScrapingEntry, ProcessingStatus } from '../types';
-import { Play, Database, Code, FileJson, CheckCircle, Clock, Trash2, Search, ArrowRight } from 'lucide-react';
+import { Play, Database, Code, FileJson, CheckCircle, Clock, Trash2, Search, ArrowRight, ArrowDown } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 
 const KnowledgeDbPanel: React.FC = () => {
@@ -25,6 +25,43 @@ const KnowledgeDbPanel: React.FC = () => {
       case ProcessingStatus.Unprocessed: return 'text-gray-500';
       default: return 'text-yellow-400';
     }
+  };
+
+  const handleProcessConverter = () => {
+      if (!selectedEntry || !selectedEntry.converter_code) return;
+
+      try {
+          // Construct a function from the code string
+          // Logic: The code should access 'entry' or 'data'. 
+          // We provide the request/response as context.
+          
+          // Safety: Basic eval sandbox
+          const entryData = {
+              request: selectedEntry.request,
+              response: selectedEntry.response,
+              filteredData: selectedEntry.filterer_json // Context if needed
+          };
+          
+          const codeWrapper = `
+            const entry = arguments[0];
+            const data = entry.response.content ? JSON.parse(entry.response.content.text || '{}') : {};
+            
+            // User Code Injection
+            ${selectedEntry.converter_code}
+          `;
+
+          // eslint-disable-next-line no-new-func
+          const fn = new Function(codeWrapper);
+          const result = fn(entryData);
+          
+          updateScrapingEntry(selectedEntry.id, {
+              final_clean_response: result,
+              processing_status: ProcessingStatus.FinalResponse
+          });
+          
+      } catch (e: any) {
+          alert(`Converter Error: ${e.message}`);
+      }
   };
 
   return (
@@ -142,21 +179,10 @@ const KnowledgeDbPanel: React.FC = () => {
                       />
                       <div className="mt-2 flex justify-end">
                           <button 
-                            className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs flex items-center gap-1"
-                            onClick={() => {
-                                try {
-                                    // Mock execution
-                                    const code = selectedEntry.converter_code;
-                                    // In real app, run unsafe code in worker or better sandbox. 
-                                    // For now, simple try/catch
-                                    const result = { success: true, message: "Code saved. Run via Agent to process." }; 
-                                    // We could actually run it here if we mock the context.
-                                    updateScrapingEntry(selectedEntry.id, { processing_status: ProcessingStatus.Converted });
-                                    alert("Converter status updated.");
-                                } catch (e) {}
-                            }}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-xs flex items-center gap-2 transition-colors font-medium shadow-lg"
+                            onClick={handleProcessConverter}
                           >
-                              <Play size={12} /> Test Run
+                              <Play size={14} /> Process to Final Output <ArrowDown size={14} />
                           </button>
                       </div>
                   </PipelineStep>
@@ -167,11 +193,13 @@ const KnowledgeDbPanel: React.FC = () => {
                     icon={<CheckCircle size={16} />} 
                     status={selectedEntry.processing_status === ProcessingStatus.FinalResponse ? 'completed' : 'pending'}
                   >
-                      <div className="bg-gray-800 p-2 rounded min-h-[100px]">
-                           {Object.keys(selectedEntry.final_clean_response).length > 0 ? (
+                      <div className="bg-gray-800 p-2 rounded min-h-[100px] border border-gray-700">
+                           {selectedEntry.final_clean_response && Object.keys(selectedEntry.final_clean_response).length > 0 ? (
                                <JsonViewer data={selectedEntry.final_clean_response} />
                            ) : (
-                               <div className="text-gray-500 text-xs italic">No final response generated yet.</div>
+                               <div className="text-gray-500 text-xs italic p-4 text-center">
+                                   No final response generated yet. Run the converter above.
+                               </div>
                            )}
                       </div>
                   </PipelineStep>

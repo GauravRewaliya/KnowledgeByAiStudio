@@ -273,6 +273,17 @@ const SettingsPage: React.FC = () => {
                         placeholder="http://localhost:4999"
                         className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500"
                     />
+                    {localUrl && (
+                        <a 
+                            href={localUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white rounded-lg transition-colors border border-gray-600"
+                            title="Open in new tab (required for DevTunnels)"
+                        >
+                            <ExternalLink size={20} />
+                        </a>
+                    )}
                     <button 
                         onClick={handleSaveBackend}
                         className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-medium transition-colors"

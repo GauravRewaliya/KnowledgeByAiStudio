@@ -1,3 +1,4 @@
+
 import { HarEntryWrapper, HarEntry } from "../types";
 
 /**
@@ -104,4 +105,55 @@ export const generateCurlCommand = (request: any): string => {
     
     // Join with line continuation and indentation
     return parts.join(' \\\n  ');
+};
+
+/**
+ * Parses a basic cURL command string into method, url, headers, and body.
+ * Limitations: Does not handle all cURL flags, binary data files, or complex quoting edge cases.
+ */
+export const parseCurlCommand = (curlStr: string): { url: string; method: string; headers: Record<string, string>; body?: string } => {
+    const result = {
+        url: '',
+        method: 'GET',
+        headers: {} as Record<string, string>,
+        body: undefined as string | undefined
+    };
+
+    // Normalize: remove newlines/backslashes
+    const cleanStr = curlStr.replace(/\\\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Extract URL (assumes it's the first non-flag argument usually, or after 'curl')
+    const urlMatch = cleanStr.match(/curl\s+['"]?([^'"]+)['"]?/);
+    if (urlMatch) result.url = urlMatch[1];
+
+    // Extract Method (-X POST)
+    const methodMatch = cleanStr.match(/-X\s+['"]?([A-Z]+)['"]?/);
+    if (methodMatch) result.method = methodMatch[1];
+
+    // Extract Headers (-H "Key: Value")
+    // Regex matches -H followed by quoted string
+    const headerRegex = /-H\s+['"]([^'"]+)['"]/g;
+    let match;
+    while ((match = headerRegex.exec(cleanStr)) !== null) {
+        const headerContent = match[1];
+        const splitIdx = headerContent.indexOf(':');
+        if (splitIdx > 0) {
+            const key = headerContent.substring(0, splitIdx).trim();
+            const val = headerContent.substring(splitIdx + 1).trim();
+            result.headers[key] = val;
+        }
+    }
+
+    // Extract Body (--data, --data-raw, -d)
+    const bodyMatch = cleanStr.match(/(--data-raw|--data|-d)\s+['"]((?:[^'"]|\\['"])+)['"]/);
+    if (bodyMatch) {
+        result.body = bodyMatch[2];
+        // If method wasn't explicit but body exists, default to POST
+        if (result.method === 'GET') result.method = 'POST';
+    }
+
+    // Fix compressed flag issue: if --compressed exists, we assume Accept-Encoding is handled by browser
+    // but in our proxy context, we might strip it or let browser handle it.
+
+    return result;
 };

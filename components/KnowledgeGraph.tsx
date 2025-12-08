@@ -12,7 +12,8 @@ import {
 } from 'd3';
 import { ExtractedEntity } from '../types';
 import { useProjectStore } from '../store/projectStore';
-import { ZoomIn, ZoomOut, RefreshCw, Filter } from 'lucide-react';
+import { ZoomIn, ZoomOut, RefreshCw, Filter, X, Info } from 'lucide-react';
+import JsonViewer from './JsonViewer';
 
 interface KnowledgeGraphProps {
   onNodeClick?: (node: ExtractedEntity) => void;
@@ -26,6 +27,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  
+  // New state for detailed node inspection
+  const [inspectedNode, setInspectedNode] = useState<ExtractedEntity | null>(null);
 
   // --- Filtering Logic ---
   // If a label is selected, show nodes of that label AND any nodes connected to them.
@@ -132,8 +136,15 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
         .attr("pointer-events", "none");
 
     node.on("click", (event, d: any) => {
+        // Find original entity to ensure clean data
+        const original = rawData.nodes.find(n => n.id === d.id);
+        setInspectedNode(original || (d as ExtractedEntity));
         if (onNodeClick) onNodeClick(d as ExtractedEntity);
+        event.stopPropagation();
     });
+    
+    // Clear selection on bg click
+    svg.on("click", () => setInspectedNode(null));
 
     simulation.on("tick", () => {
       link
@@ -188,7 +199,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
         <svg ref={svgRef} className="w-full h-full cursor-move"></svg>
         
         {/* Controls */}
-        <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-gray-800 p-2 rounded shadow-lg">
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-gray-800 p-2 rounded shadow-lg z-10">
              <div className="text-xs text-center text-gray-400 mb-1">{Math.round(zoomLevel * 100)}%</div>
              <button className="p-1 hover:bg-gray-700 rounded"><ZoomIn size={16} /></button>
              <button className="p-1 hover:bg-gray-700 rounded"><ZoomOut size={16} /></button>
@@ -196,7 +207,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
         </div>
         
         {/* Interactive Legend */}
-        <div className="absolute top-4 left-4 bg-gray-800/80 backdrop-blur p-3 rounded border border-gray-700 shadow-xl max-h-[80%] overflow-y-auto">
+        <div className="absolute top-4 left-4 bg-gray-800/80 backdrop-blur p-3 rounded border border-gray-700 shadow-xl max-h-[80%] overflow-y-auto z-10">
             <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Legend</h4>
                 {selectedLabel && (
@@ -227,6 +238,38 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
                     </div>
                 ))}
             </div>
+        </div>
+
+        {/* Node Detail Sliding Panel */}
+        <div className={`
+            absolute top-0 right-0 h-full bg-gray-800 border-l border-gray-700 shadow-2xl z-20 
+            transition-transform duration-300 ease-in-out w-80
+            ${inspectedNode ? 'translate-x-0' : 'translate-x-full'}
+        `}>
+            {inspectedNode && (
+                <div className="flex flex-col h-full">
+                    <div className="p-4 border-b border-gray-700 flex justify-between items-start bg-gray-900">
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColorForType(inspectedNode.type) }}></div>
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{inspectedNode.type}</span>
+                            </div>
+                            <h3 className="text-lg font-bold text-white leading-tight">{inspectedNode.label}</h3>
+                            <div className="text-[10px] text-gray-500 font-mono mt-1">{inspectedNode.id}</div>
+                        </div>
+                        <button onClick={() => setInspectedNode(null)} className="text-gray-500 hover:text-white">
+                            <X size={18} />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4">
+                        <div className="flex items-center gap-2 text-gray-300 mb-2 border-b border-gray-700 pb-2">
+                             <Info size={14} /> 
+                             <span className="text-sm font-semibold">Properties</span>
+                        </div>
+                        <JsonViewer data={inspectedNode.data} initialExpanded={true} />
+                    </div>
+                </div>
+            )}
         </div>
     </div>
   );

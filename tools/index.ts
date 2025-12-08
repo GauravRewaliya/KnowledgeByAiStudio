@@ -6,6 +6,7 @@ import { getResponseContentToolDefinition, getResponseContentImpl } from "./cont
 import { 
   findSimilarParserToolDefinition, findSimilarParserImpl,
   updateScrapingEntryToolDefinition, updateScrapingEntryImpl,
+  deleteScrapingEntryToolDefinition, deleteScrapingEntryImpl,
   executeProxyRequestToolDefinition, executeProxyRequestImpl
 } from "./scrapingTools";
 import { ToolDefinition, ToolFunction } from "../types/ai";
@@ -17,6 +18,7 @@ export const allToolDefinitions: ToolDefinition[] = [
   runExtractionCodeToolDefinition,
   findSimilarParserToolDefinition,
   updateScrapingEntryToolDefinition,
+  deleteScrapingEntryToolDefinition,
   executeProxyRequestToolDefinition
 ];
 
@@ -28,5 +30,6 @@ export const toolImplementations: { [key: string]: ToolFunction<any, any> } = {
   run_extraction_code: runExtractionCodeImpl,
   find_similar_parser: findSimilarParserImpl,
   update_scraping_entry: updateScrapingEntryImpl,
+  delete_scraping_entry: deleteScrapingEntryImpl,
   execute_proxy_request: executeProxyRequestImpl as any, // Cast due to async
 };

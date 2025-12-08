@@ -8,10 +8,10 @@ export const executeProxyRequest = async (backendUrl: string, requestData: any, 
         throw new Error("Backend URL is not configured. Please go to Settings.");
     }
 
+    // Ensure clean URL
+    const baseUrl = backendUrl.replace(/\/$/, "");
+
     try {
-        // Remove trailing slash
-        const baseUrl = backendUrl.replace(/\/$/, "");
-        
         // Construct the proxy URL with the target param as required by the Ruby controller
         // Expected route: /proxy?target=URL
         const proxyUrl = new URL(`${baseUrl}/proxy`);
@@ -19,7 +19,13 @@ export const executeProxyRequest = async (backendUrl: string, requestData: any, 
 
         const fetchOptions: RequestInit = {
             method: requestData.method,
-            headers: requestData.headers || {},
+            headers: {
+                // Headers to bypass tunneling service warning pages
+                'X-Tunnel-Skip-Anti-Phishing-Page': '1',
+                'ngrok-skip-browser-warning': 'true',
+                // Merge user headers
+                ...(requestData.headers || {})
+            },
         };
 
         // Add body if not GET/HEAD
@@ -27,41 +33,33 @@ export const executeProxyRequest = async (backendUrl: string, requestData: any, 
             fetchOptions.body = requestData.body;
         }
 
-        // Add sessionId to custom header if needed, or if the backend logic requires it in a specific way.
-        // The provided Ruby code doesn't explicitly look for 'sessionId', but we can pass it in headers if needed.
-        if (sessionId) {
-            fetchOptions.headers = {
-                ...fetchOptions.headers,
-                'X-Session-ID': sessionId
-            };
-        }
-
+        // NOTE: 'X-Session-ID' injection is removed to prevent unnecessary CORS Preflight (OPTIONS) requests.
+        // If the backend is strict about CORS, adding custom headers forces a preflight which might fail 
+        // if the proxy controller doesn't handle OPTIONS explicitly.
+        
         const response = await fetch(proxyUrl.toString(), fetchOptions);
 
         // The Ruby controller returns the target's body directly as JSON.
         // It sets the status code to the target's status code.
-        // It does NOT return a wrapped object { content, headers, status }.
-        // We must normalize this for our frontend components.
-        
         const status = response.status;
         let content = '';
-        let contentType = response.headers.get('content-type') || '';
 
         // Try to get text first
         const textBody = await response.text();
         content = textBody;
 
-        // Try to parse as JSON if content-type suggests
-        // But for our generic 'content' field, we usually keep it as string unless specific usage
-        
         return {
             status,
             content,
             headers: {}, // Proxy doesn't return target headers in the response body, so we lose them here.
-            harEntry: null // Cannot construct full HAR without request/response details that might be missing
+            harEntry: null
         };
 
     } catch (e: any) {
+        // Handle network errors explicitly
+        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+             throw new Error(`Network Error: Could not reach ${baseUrl}.\n\nCommon Causes:\n1. Backend is not running.\n2. You are using DevTunnels and haven't accepted the warning.\n3. CORS is blocking the request (Preflight failed).`);
+        }
         throw new Error(`Proxy Request Failed: ${e.message}`);
     }
 };
@@ -73,18 +71,20 @@ export const checkBackendHealth = async (backendUrl: string): Promise<boolean> =
     if (!backendUrl) return false;
     try {
         const baseUrl = backendUrl.replace(/\/$/, "");
-        // Assuming a generic health endpoint or root check
-        // If the Ruby app doesn't have /health, we can try a harmless proxy call or just root
-        const response = await fetch(`${baseUrl}/up`, { method: 'GET' }); // Rails 7+ default health check
-        return response.ok;
-    } catch {
-        // Fallback: Try root
-        try {
-             const baseUrl = backendUrl.replace(/\/$/, "");
-             await fetch(baseUrl, { method: 'GET' });
-             return true; 
-        } catch {
-            return false;
-        }
+        // Try a simple fetch to root or a known endpoint
+        // We DO NOT use 'no-cors' here because we need to send the headers to bypass the warning page.
+        // If we use 'no-cors', the headers are stripped, and we hit the warning page (opaque response), 
+        // which might look like success but isn't valid for API usage.
+        await fetch(baseUrl, { 
+            method: 'GET',
+            headers: {
+                 'X-Tunnel-Skip-Anti-Phishing-Page': '1',
+                 'ngrok-skip-browser-warning': 'true',
+            }
+        }); 
+        return true;
+    } catch (e) {
+        console.warn("Backend health check failed:", e);
+        return false;
     }
 };

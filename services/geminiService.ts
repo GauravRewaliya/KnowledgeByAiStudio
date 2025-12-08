@@ -61,6 +61,8 @@ export const runHarAgent = async (
        - Instead of outputting massive JSON data to the user, write JavaScript code.
        - Use 'update_scraping_entry' to save 'converter_code' that parses the response.
        - Use 'run_extraction_code' if the user asks for immediate extraction into the graph.
+    5. **Maintenance**:
+       - Use 'delete_scraping_entry' to remove entries that you determine are irrelevant or mistakes.
     
     TOOLS:
     - 'get_har_structure': Filter requests. Supports 'method', 'url_contains', 'indices'.
@@ -68,6 +70,7 @@ export const runHarAgent = async (
     - 'get_response_content': Get raw text (truncated).
     - 'find_similar_parser': Check if we already have logic for this URL pattern.
     - 'update_scraping_entry': Save your parser/filter logic to the DB.
+    - 'delete_scraping_entry': Delete a scraping entry by ID.
     - 'run_extraction_code': Execute one-off extraction code.
 
     STYLE GUIDE:
