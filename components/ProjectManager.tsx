@@ -1,11 +1,12 @@
 
 import React, { useState, useRef } from 'react';
 import { useProjectStore } from '../store/projectStore';
-import { FolderPlus, Trash2, FolderOpen, HardDrive, FileText, Activity, Upload, Edit2, X, Check } from 'lucide-react';
+import { FolderPlus, Trash2, FolderOpen, HardDrive, FileText, Activity, Upload, Edit2, X, Check, ArrowRight, PlayCircle } from 'lucide-react';
 import { ProjectMetadata } from '../types';
+import { DEMO_EXAMPLES } from '../demo/examples';
 
 const ProjectManager: React.FC = () => {
-    const { projects, createProject, openProject, deleteProject, importProjectFromFile, renameProject, isLoading } = useProjectStore();
+    const { projects, createProject, openProject, deleteProject, importProjectFromFile, createProjectFromBackup, renameProject, isLoading } = useProjectStore();
     const [isCreating, setIsCreating] = useState(false);
     const [newProjectName, setNewProjectName] = useState('');
     
@@ -53,7 +54,7 @@ const ProjectManager: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full w-full bg-gray-900 text-white p-8 overflow-y-auto">
-            <div className="max-w-6xl mx-auto w-full">
+            <div className="max-w-7xl mx-auto w-full">
                 <header className="flex items-center justify-between mb-8 pb-4 border-b border-gray-800">
                     <div>
                         <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -85,8 +86,52 @@ const ProjectManager: React.FC = () => {
                     </div>
                 </header>
 
+                {/* Demos Section */}
+                <div className="mb-10">
+                    <h2 className="text-lg font-semibold text-gray-200 mb-4 flex items-center gap-2">
+                        <PlayCircle size={18} className="text-purple-400" /> Start with a Demo
+                    </h2>
+                    <div className="flex overflow-x-auto snap-x gap-4 pb-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+                        {DEMO_EXAMPLES.map((demo) => (
+                            <div 
+                                key={demo.id}
+                                className={`
+                                    group flex-shrink-0 w-80 h-48 bg-gradient-to-br ${demo.colorFrom} ${demo.colorTo} 
+                                    rounded-2xl p-6 relative overflow-hidden cursor-pointer shadow-xl snap-start
+                                    transform transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1
+                                `}
+                                onClick={() => {
+                                    if(confirm(`Import and open "${demo.title}"?`)) {
+                                        createProjectFromBackup(demo.data);
+                                    }
+                                }}
+                            >
+                                <div className="relative z-10 h-full flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            {demo.tags.map(tag => (
+                                                <span key={tag} className="text-[10px] uppercase font-bold bg-white/20 text-white px-2 py-0.5 rounded-full">{tag}</span>
+                                            ))}
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-white mb-2 leading-tight">{demo.title}</h3>
+                                        <p className="text-white/80 text-sm line-clamp-2">{demo.description}</p>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 text-white font-bold text-sm opacity-0 transform translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                                        Import & Open <ArrowRight size={16} />
+                                    </div>
+                                </div>
+                                
+                                {/* Decorational Circles */}
+                                <div className="absolute -bottom-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all" />
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-black/10 rounded-full blur-xl" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {isCreating && (
-                    <div className="mb-8 bg-gray-800 border border-gray-700 rounded-xl p-6 animate-in slide-in-from-top-4">
+                    <div className="mb-8 bg-gray-800 border border-gray-700 rounded-xl p-6 animate-in slide-in-from-top-4 shadow-2xl">
                         <h3 className="text-lg font-semibold mb-4">Create New Project</h3>
                         <form onSubmit={handleCreate} className="space-y-4">
                             <div>
@@ -150,24 +195,29 @@ const ProjectManager: React.FC = () => {
                             <FolderOpen size={32} />
                         </div>
                         <h3 className="text-xl font-semibold text-gray-300">No Projects Found</h3>
-                        <p className="text-gray-500 mt-2">Create a new project or import a backup to start.</p>
+                        <p className="text-gray-500 mt-2">Create a new project or start with a demo above.</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {projects.map(project => (
-                            <ProjectCard 
-                                key={project.id} 
-                                project={project} 
-                                onOpen={openProject} 
-                                onDelete={deleteProject}
-                                onRename={() => startRename(project)}
-                                isRenaming={renamingId === project.id}
-                                renameValue={renameValue}
-                                setRenameValue={setRenameValue}
-                                submitRename={submitRename}
-                                cancelRename={() => setRenamingId(null)}
-                            />
-                        ))}
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-200 mb-4 flex items-center gap-2">
+                            <HardDrive size={18} className="text-blue-400" /> Your Projects
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {projects.map(project => (
+                                <ProjectCard 
+                                    key={project.id} 
+                                    project={project} 
+                                    onOpen={openProject} 
+                                    onDelete={deleteProject}
+                                    onRename={() => startRename(project)}
+                                    isRenaming={renamingId === project.id}
+                                    renameValue={renameValue}
+                                    setRenameValue={setRenameValue}
+                                    submitRename={submitRename}
+                                    cancelRename={() => setRenamingId(null)}
+                                />
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

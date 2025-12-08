@@ -183,6 +183,7 @@ export interface ProjectState {
   closeProject: () => void;
   deleteProject: (id: string) => Promise<void>;
   importProjectFromFile: (file: File) => Promise<void>;
+  createProjectFromBackup: (backup: ProjectBackup) => Promise<void>;
   renameProject: (id: string, newName: string) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   

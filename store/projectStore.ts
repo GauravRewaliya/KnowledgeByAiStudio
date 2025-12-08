@@ -87,22 +87,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             const text = await file.text();
             const backup: ProjectBackup = JSON.parse(text);
             
+            await get().createProjectFromBackup(backup);
+        } catch (e: any) {
+            set({ error: "Failed to import project: " + e.message, isLoading: false });
+        }
+    },
+
+    createProjectFromBackup: async (backup: ProjectBackup) => {
+        try {
             if (!backup.harEntries || !backup.knowledgeData) {
-                throw new Error("Invalid backup file format");
+                throw new Error("Invalid backup format: missing HAR entries or Knowledge Graph.");
             }
 
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
 
+            // Sanitize entries to ensure unique IDs if imported multiple times
+            const harId = Math.random().toString(36).substr(2, 9);
+            const sanitizedEntries = (backup.harEntries || []).map((entry, idx) => ({
+                ...entry,
+                _harId: harId, // Overwrite HAR ID to avoid collisions
+                _id: `entry-${harId}-${idx}` // Regenerate internal ID
+            }));
+
             const newProject: ProjectData = {
                 id,
-                name: backup.name || file.name.replace('.json', '') || 'Imported Project',
+                name: backup.name || 'Imported Project',
                 createdAt: backup.timestamp || now,
                 updatedAt: now,
-                requestCount: backup.harEntries.length,
+                requestCount: sanitizedEntries.length,
                 entityCount: backup.knowledgeData.nodes.length,
-                size: 0,
-                harEntries: backup.harEntries,
+                size: 0, // Recalculated on save
+                harEntries: sanitizedEntries,
                 knowledgeData: backup.knowledgeData,
                 chatHistory: backup.chatHistory || [],
                 scrapingEntries: backup.scrapingEntries || [],
@@ -115,9 +131,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             const projects = await storageService.getAllMetadata();
             projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
             
-            set({ projects, isLoading: false });
+            set({ 
+                projects, 
+                isLoading: false,
+                activeProjectId: id,
+                activeProject: newProject,
+                viewMode: ViewMode.EXPLORE
+            });
         } catch (e: any) {
-            set({ error: "Failed to import project: " + e.message, isLoading: false });
+            set({ error: "Failed to create project from backup: " + e.message, isLoading: false });
         }
     },
 
