@@ -5,6 +5,7 @@ import { executeProxyRequest } from '../services/backendService';
 import { Globe, ArrowRight, Loader2, RefreshCw, Plus, Trash2, Code, Eye, AlertCircle, ShieldCheck, ChevronDown, FileText } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 import { HarEntryWrapper } from '../types';
+import ConfirmModal from './ConfirmModal';
 
 const BrowserPanel: React.FC = () => {
     const { activeProject, createBrowserSession, deleteBrowserSession, addHarFile } = useProjectStore();
@@ -22,6 +23,12 @@ const BrowserPanel: React.FC = () => {
     const [viewMode, setViewMode] = useState<'PREVIEW' | 'JSON' | 'RAW'>('PREVIEW');
     const [newSessionName, setNewSessionName] = useState('');
     const [isCreatingSession, setIsCreatingSession] = useState(false);
+
+    // Confirmation State
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({
+        isOpen: false, title: '', message: '', onConfirm: () => {}
+    });
+    const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
     // Response State
     const [responseContent, setResponseContent] = useState<string>('');
@@ -160,8 +167,29 @@ const BrowserPanel: React.FC = () => {
         }
     };
 
+    const requestDeleteSession = () => {
+        const sessionName = sessions.find(s => s.id === activeSessionId)?.name || 'this session';
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Session',
+            message: `Are you sure you want to delete "${sessionName}"?\nHistory for this session will be lost.`,
+            onConfirm: () => {
+                deleteBrowserSession(activeSessionId);
+                closeConfirm();
+            }
+        });
+    };
+
     return (
         <div className="flex flex-col h-full w-full bg-gray-900 text-white">
+            <ConfirmModal 
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                onConfirm={confirmModal.onConfirm}
+                onCancel={closeConfirm}
+            />
+
             {/* Top Bar - Session & Address */}
             <div className="p-3 border-b border-gray-700 bg-gray-800 flex flex-col gap-2">
                 <div className="flex items-center gap-3">
@@ -188,7 +216,7 @@ const BrowserPanel: React.FC = () => {
                     </button>
                     {activeSessionId && sessions.length > 1 && ( // Only show delete if more than one session
                         <button 
-                            onClick={() => { if(confirm(`Delete session "${sessions.find(s => s.id === activeSessionId)?.name}"?`)) deleteBrowserSession(activeSessionId); }}
+                            onClick={requestDeleteSession}
                             className="p-1.5 bg-red-800/20 hover:bg-red-800/40 rounded text-red-400 transition-colors"
                             title="Delete Session"
                         >

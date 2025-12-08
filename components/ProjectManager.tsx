@@ -3,7 +3,8 @@ import React, { useState, useRef } from 'react';
 import { useProjectStore } from '../store/projectStore';
 import { FolderPlus, Trash2, FolderOpen, HardDrive, FileText, Activity, Upload, Edit2, X, Check, ArrowRight, PlayCircle } from 'lucide-react';
 import { ProjectMetadata } from '../types';
-import { DEMO_EXAMPLES } from '../demo/examples';
+import { DEMO_EXAMPLES, DemoProject } from '../demo/examples';
+import ConfirmModal from './ConfirmModal';
 
 const ProjectManager: React.FC = () => {
     const { projects, createProject, openProject, deleteProject, importProjectFromFile, createProjectFromBackup, renameProject, isLoading } = useProjectStore();
@@ -17,6 +18,13 @@ const ProjectManager: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const importInputRef = useRef<HTMLInputElement>(null);
     const [initialFile, setInitialFile] = useState<File | null>(null);
+
+    // Confirmation Modal State
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({
+        isOpen: false, title: '', message: '', onConfirm: () => {}
+    });
+
+    const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -52,8 +60,40 @@ const ProjectManager: React.FC = () => {
         setRenamingId(null);
     };
 
+    const requestDelete = (id: string) => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Project',
+            message: 'Are you sure you want to delete this project?\nThis action cannot be undone.',
+            onConfirm: () => {
+                deleteProject(id);
+                closeConfirm();
+            }
+        });
+    };
+
+    const requestDemoImport = (demo: DemoProject) => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Import Demo',
+            message: `Do you want to import "${demo.title}"?\nThis will create a new project in your workspace.`,
+            onConfirm: () => {
+                createProjectFromBackup(demo.data);
+                closeConfirm();
+            }
+        });
+    };
+
     return (
         <div className="flex flex-col h-full w-full bg-gray-900 text-white p-8 overflow-y-auto">
+            <ConfirmModal 
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                onConfirm={confirmModal.onConfirm}
+                onCancel={closeConfirm}
+            />
+
             <div className="max-w-7xl mx-auto w-full">
                 <header className="flex items-center justify-between mb-8 pb-4 border-b border-gray-800">
                     <div>
@@ -100,11 +140,7 @@ const ProjectManager: React.FC = () => {
                                     rounded-2xl p-6 relative overflow-hidden cursor-pointer shadow-xl snap-start
                                     transform transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1
                                 `}
-                                onClick={() => {
-                                    if(confirm(`Import and open "${demo.title}"?`)) {
-                                        createProjectFromBackup(demo.data);
-                                    }
-                                }}
+                                onClick={() => requestDemoImport(demo)}
                             >
                                 <div className="relative z-10 h-full flex flex-col justify-between">
                                     <div>
@@ -208,7 +244,7 @@ const ProjectManager: React.FC = () => {
                                     key={project.id} 
                                     project={project} 
                                     onOpen={openProject} 
-                                    onDelete={deleteProject}
+                                    onDelete={() => requestDelete(project.id)}
                                     onRename={() => startRename(project)}
                                     isRenaming={renamingId === project.id}
                                     renameValue={renameValue}
@@ -228,7 +264,7 @@ const ProjectManager: React.FC = () => {
 interface ProjectCardProps { 
     project: ProjectMetadata; 
     onOpen: (id: string) => void; 
-    onDelete: (id: string) => void; 
+    onDelete: () => void; 
     onRename: () => void;
     isRenaming: boolean;
     renameValue: string;
@@ -255,7 +291,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
                         <Edit2 size={16} />
                     </button>
                     <button 
-                        onClick={(e) => { e.stopPropagation(); if(confirm('Delete this project?')) onDelete(project.id); }}
+                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
                         className="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-red-900/20 transition-colors"
                         title="Delete"
                     >
@@ -311,7 +347,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     );
 };
 
-// Helper for formatting bytes again if needed or shared
+// Helper for formatting bytes
 const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
