@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   select, 
   forceSimulation, 
@@ -11,7 +12,7 @@ import {
 } from 'd3';
 import { ExtractedEntity } from '../types';
 import { useProjectStore } from '../store/projectStore';
-import { ZoomIn, ZoomOut, RefreshCw } from 'lucide-react';
+import { ZoomIn, ZoomOut, RefreshCw, Filter } from 'lucide-react';
 
 interface KnowledgeGraphProps {
   onNodeClick?: (node: ExtractedEntity) => void;
@@ -19,23 +20,68 @@ interface KnowledgeGraphProps {
 
 const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
   const { activeProject } = useProjectStore();
-  const data = activeProject?.knowledgeData || { nodes: [], links: [] };
+  const rawData = activeProject?.knowledgeData || { nodes: [], links: [] };
 
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+
+  // --- Filtering Logic ---
+  // If a label is selected, show nodes of that label AND any nodes connected to them.
+  const filteredData = useMemo(() => {
+    if (!selectedLabel) return rawData;
+
+    const targetNodeIds = new Set(
+        rawData.nodes.filter(n => n.type === selectedLabel).map(n => n.id)
+    );
+
+    // Find links connected to these nodes
+    const relevantLinks = rawData.links.filter(l => 
+        targetNodeIds.has(l.source) || targetNodeIds.has(l.target)
+    );
+
+    // Add neighbors to the set of nodes to show
+    relevantLinks.forEach(l => {
+        targetNodeIds.add(l.source);
+        targetNodeIds.add(l.target);
+    });
+
+    const nodes = rawData.nodes.filter(n => targetNodeIds.has(n.id));
+    // Filter links to only those where both source/target are in the node set
+    // Note: D3 force layout modifies link objects, so we must be careful with IDs vs Objects if re-running.
+    // Here we just use the raw IDs from store, D3 will objectify them.
+    const validNodeIds = new Set(nodes.map(n => n.id));
+    const links = rawData.links.filter(l => validNodeIds.has(l.source) && validNodeIds.has(l.target));
+
+    return { nodes, links };
+  }, [rawData, selectedLabel]);
+
+  // Extract unique labels for legend
+  const labels = useMemo(() => {
+      const set = new Set(rawData.nodes.map(n => n.type));
+      return Array.from(set);
+  }, [rawData]);
 
   useEffect(() => {
-    if (!data.nodes.length || !svgRef.current || !wrapperRef.current) return;
+    if (!filteredData.nodes.length && !selectedLabel) {
+        // Clear if empty
+        const svg = select(svgRef.current);
+        svg.selectAll("*").remove();
+        return;
+    }
+    
+    if (!svgRef.current || !wrapperRef.current) return;
 
     const width = wrapperRef.current.clientWidth;
     const height = wrapperRef.current.clientHeight;
 
     const svg = select(svgRef.current);
-    svg.selectAll("*").remove(); // Clear previous
+    svg.selectAll("*").remove(); 
 
-    const nodes = data.nodes.map(d => ({ ...d }));
-    const links = data.links.map(d => ({ ...d }));
+    // Deep copy for D3 mutation
+    const nodes = filteredData.nodes.map(d => ({ ...d }));
+    const links = filteredData.links.map(d => ({ ...d }));
 
     const simulation = forceSimulation(nodes as any)
       .force("link", forceLink(links).id((d: any) => d.id).distance(100))
@@ -68,13 +114,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
       .data(nodes)
       .join("circle")
       .attr("r", 8)
-      .attr("fill", (d: any) => {
-          if (d.type === 'Project') return '#3b82f6';
-          if (d.type === 'Exam') return '#10b981';
-          if (d.type === 'Paper') return '#f59e0b';
-          if (d.type === 'Question') return '#ef4444';
-          return '#6b7280';
-      })
+      .attr("fill", (d: any) => getColorForType(d.type))
       .call(d3Drag<any, any>()
         .on("start", dragstarted)
         .on("drag", dragged)
@@ -131,11 +171,23 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
     return () => {
       simulation.stop();
     };
-  }, [data]);
+  }, [filteredData, wrapperRef.current?.clientWidth, wrapperRef.current?.clientHeight]);
+
+  const getColorForType = (type: string) => {
+      switch (type) {
+          case 'Project': return '#3b82f6';
+          case 'Exam': return '#10b981';
+          case 'Paper': return '#f59e0b';
+          case 'Question': return '#ef4444';
+          default: return '#6b7280';
+      }
+  };
 
   return (
     <div ref={wrapperRef} className="w-full h-full relative bg-gray-900 overflow-hidden">
         <svg ref={svgRef} className="w-full h-full cursor-move"></svg>
+        
+        {/* Controls */}
         <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-gray-800 p-2 rounded shadow-lg">
              <div className="text-xs text-center text-gray-400 mb-1">{Math.round(zoomLevel * 100)}%</div>
              <button className="p-1 hover:bg-gray-700 rounded"><ZoomIn size={16} /></button>
@@ -143,14 +195,37 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ onNodeClick }) => {
              <button className="p-1 hover:bg-gray-700 rounded"><RefreshCw size={16} /></button>
         </div>
         
-        <div className="absolute top-4 left-4 bg-gray-800/80 backdrop-blur p-3 rounded border border-gray-700">
-            <h4 className="text-xs font-bold text-gray-300 mb-2 uppercase tracking-wider">Legend</h4>
+        {/* Interactive Legend */}
+        <div className="absolute top-4 left-4 bg-gray-800/80 backdrop-blur p-3 rounded border border-gray-700 shadow-xl max-h-[80%] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Legend</h4>
+                {selectedLabel && (
+                    <button 
+                        onClick={() => setSelectedLabel(null)}
+                        className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1"
+                    >
+                        <Filter size={10} /> Clear
+                    </button>
+                )}
+            </div>
             <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-xs text-gray-400">Project</span></div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div><span className="text-xs text-gray-400">Exam</span></div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div><span className="text-xs text-gray-400">Paper</span></div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div><span className="text-xs text-gray-400">Question</span></div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-gray-500"></div><span className="text-xs text-gray-400">Other</span></div>
+                {labels.map(label => (
+                    <div 
+                        key={label} 
+                        onClick={() => setSelectedLabel(selectedLabel === label ? null : label)}
+                        className={`
+                            flex items-center gap-2 cursor-pointer p-1 rounded transition-colors
+                            ${selectedLabel === label ? 'bg-gray-700 ring-1 ring-blue-500' : 'hover:bg-gray-700/50'}
+                            ${selectedLabel && selectedLabel !== label ? 'opacity-50' : 'opacity-100'}
+                        `}
+                    >
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColorForType(label) }}></div>
+                        <span className="text-xs text-gray-300 font-medium">{label}</span>
+                        <span className="text-[10px] text-gray-500 ml-auto">
+                            {rawData.nodes.filter(n => n.type === label).length}
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
     </div>

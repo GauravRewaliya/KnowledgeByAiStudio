@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, GenerateContentResponse, FunctionDeclaration, Type } from "@google/genai";
-import { KnowledgeGraphData, HarEntryWrapper } from "../types";
+import { KnowledgeGraphData, HarEntryWrapper, ToolCall } from "../types";
 import { allToolDefinitions, toolImplementations } from "../tools"; // Import all tools
 import { ToolDefinition } from "../types/ai"; // Import ToolDefinition type
 
@@ -35,10 +36,14 @@ export const runHarAgent = async (
   history: { role: string; text: string }[],
   currentMessage: string,
   harData: HarEntryWrapper[],
-  onDataExtracted?: (data: any[]) => void
+  callbacks: {
+    onDataExtracted?: (data: any[]) => void;
+    onToolUpdate?: (toolCall: ToolCall) => void;
+  }
 ): Promise<string> => {
   const ai = getAiClient();
   const model = "gemini-2.5-flash";
+  const { onDataExtracted, onToolUpdate } = callbacks;
 
   const systemInstruction = `
     You are HarMind, an expert Data Engineer & Network Analyst AI.
@@ -97,7 +102,20 @@ export const runHarAgent = async (
     for (const call of functionCalls) {
       const name = call.name;
       const args = call.args as any;
+      const callId = call.id || `call_${Date.now()}_${Math.random()}`;
+      
       let result: any = { error: "Unknown function" };
+
+      // Notify UI: Tool Started
+      if (onToolUpdate) {
+        onToolUpdate({
+            id: callId,
+            name: name,
+            args: args,
+            status: 'pending',
+            timestamp: Date.now()
+        });
+      }
 
       console.log(`[Agent] Calling tool: ${name}`, args);
 
@@ -107,14 +125,36 @@ export const runHarAgent = async (
           result = await toolFunc(harData, args); // Await all, just in case
           
           if (name === 'run_extraction_code' && result.success && onDataExtracted) {
-             onDataExtracted(result.data);
-             result = { success: true, count: result.data.length, sample: result.data.slice(0, 2), note: "Data pushed to graph." };
+             if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+                 onDataExtracted(result.data);
+                 // We don't send the full data back to LLM to save tokens, just a sample/count
+                 result = { 
+                     success: true, 
+                     count: result.data.length, 
+                     sample: result.data.slice(0, 2), 
+                     note: "Data successfully pushed to graph." 
+                 };
+             } else {
+                 result = { success: true, count: 0, note: "Code executed but no data returned. Did you forget to return the array?" };
+             }
           }
         } else {
           result = { error: `Tool '${name}' not implemented.` };
         }
       } catch (e: any) {
         result = { error: e.message };
+      }
+
+      // Notify UI: Tool Finished
+      if (onToolUpdate) {
+        onToolUpdate({
+            id: callId,
+            name: name,
+            args: args, // Keep args
+            result: result,
+            status: result.error || (result.success === false) ? 'error' : 'success',
+            timestamp: Date.now()
+        });
       }
 
       functionResponses.push({

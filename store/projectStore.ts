@@ -1,7 +1,8 @@
 
 import { create } from 'zustand';
-import { ProjectState, ProjectData, ProjectMetadata, ViewMode, HarFile, HarEntryWrapper, KnowledgeGraphData, ChatMessage, ProjectBackup, ScrapingEntry, ProcessingStatus, BrowserSession } from '../types';
+import { ProjectState, ProjectData, ProjectMetadata, ViewMode, HarFile, HarEntryWrapper, KnowledgeGraphData, ChatMessage, ProjectBackup, ScrapingEntry, ProcessingStatus, BrowserSession, Neo4jConfig } from '../types';
 import { storageService } from '../services/storageService';
+import { DEFAULT_CONFIG } from '../services/config';
 
 // Debounce helper for auto-save
 let saveTimeout: any = null;
@@ -68,7 +69,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             knowledgeData: { nodes: [], links: [] },
             chatHistory: [{ role: 'model', text: 'Project created. Ready to analyze.' }],
             scrapingEntries: [],
-            browserSessions: [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }]
+            browserSessions: [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }],
+            backendUrl: DEFAULT_CONFIG.BACKEND_URL,
+            neo4jConfig: {
+                uri: DEFAULT_CONFIG.NEO4J_URI,
+                user: DEFAULT_CONFIG.NEO4J_USER,
+                password: DEFAULT_CONFIG.NEO4J_PASSWORD,
+                browserUrl: DEFAULT_CONFIG.NEO4J_BROWSER_URL
+            }
         };
 
         await storageService.saveProject(newProject);
@@ -122,7 +130,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                 knowledgeData: backup.knowledgeData,
                 chatHistory: backup.chatHistory || [],
                 scrapingEntries: backup.scrapingEntries || [],
-                browserSessions: backup.browserSessions || [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }]
+                browserSessions: backup.browserSessions || [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: now }],
+                backendUrl: backup.backendUrl || DEFAULT_CONFIG.BACKEND_URL,
+                neo4jConfig: backup.neo4jConfig || {
+                    uri: DEFAULT_CONFIG.NEO4J_URI,
+                    user: DEFAULT_CONFIG.NEO4J_USER,
+                    password: DEFAULT_CONFIG.NEO4J_PASSWORD,
+                    browserUrl: DEFAULT_CONFIG.NEO4J_BROWSER_URL
+                }
             };
 
             await storageService.saveProject(newProject);
@@ -172,6 +187,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             // Ensure schema compatibility
             if (!project.scrapingEntries) project.scrapingEntries = [];
             if (!project.browserSessions) project.browserSessions = [{ id: crypto.randomUUID(), name: 'Default Session', createdAt: new Date().toISOString() }];
+            if (!project.backendUrl) project.backendUrl = DEFAULT_CONFIG.BACKEND_URL;
+            if (!project.neo4jConfig) {
+                 project.neo4jConfig = {
+                    uri: DEFAULT_CONFIG.NEO4J_URI,
+                    user: DEFAULT_CONFIG.NEO4J_USER,
+                    password: DEFAULT_CONFIG.NEO4J_PASSWORD,
+                    browserUrl: DEFAULT_CONFIG.NEO4J_BROWSER_URL
+                 };
+            }
             
             set({ 
                 activeProjectId: id, 
@@ -296,6 +320,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             chatHistory: backup.chatHistory || [],
             scrapingEntries: backup.scrapingEntries || [],
             browserSessions: backup.browserSessions || store.activeProject.browserSessions,
+            backendUrl: backup.backendUrl || store.activeProject.backendUrl,
+            neo4jConfig: backup.neo4jConfig || store.activeProject.neo4jConfig,
             updatedAt: new Date().toISOString()
         };
 
@@ -377,6 +403,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const store = get();
         if (!store.activeProject) return;
         const updatedProject = { ...store.activeProject, backendUrl: url };
+        set({ activeProject: updatedProject });
+        debouncedSave(updatedProject);
+    },
+    
+    setNeo4jConfig: (config: Neo4jConfig) => {
+        const store = get();
+        if (!store.activeProject) return;
+        const updatedProject = { ...store.activeProject, neo4jConfig: config };
         set({ activeProject: updatedProject });
         debouncedSave(updatedProject);
     },

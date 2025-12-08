@@ -82,9 +82,20 @@ export interface KnowledgeGraphData {
   links: KnowledgeLink[];
 }
 
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: any;
+  result?: any;
+  status: 'pending' | 'success' | 'error';
+  timestamp: number;
+}
+
 export interface ChatMessage {
+  id?: string; // Optional for backward compatibility, but recommended
   role: 'user' | 'model' | 'system';
   text: string;
+  toolCalls?: ToolCall[];
 }
 
 // --- Knowledge DB / ETL Pipeline Types ---
@@ -138,8 +149,16 @@ export interface ProjectData extends ProjectMetadata {
   knowledgeData: KnowledgeGraphData;
   chatHistory: ChatMessage[];
   scrapingEntries: ScrapingEntry[]; 
-  browserSessions: BrowserSession[]; // New: Sessions for the virtual browser
-  backendUrl?: string; 
+  browserSessions: BrowserSession[]; 
+  backendUrl?: string;
+  neo4jConfig?: Neo4jConfig;
+}
+
+export interface Neo4jConfig {
+  uri: string;
+  user: string;
+  password?: string; // Optional if no auth
+  browserUrl?: string; // For admin redirection
 }
 
 export interface ProjectBackup {
@@ -151,6 +170,8 @@ export interface ProjectBackup {
   chatHistory: ChatMessage[];
   scrapingEntries?: ScrapingEntry[];
   browserSessions?: BrowserSession[];
+  neo4jConfig?: Neo4jConfig;
+  backendUrl?: string;
 }
 
 // UI State Types
@@ -198,7 +219,10 @@ export interface ProjectState {
   syncHarToDb: (entries: HarEntryWrapper[]) => void;
   updateScrapingEntry: (id: string, updates: Partial<ScrapingEntry>) => void;
   deleteScrapingEntry: (id: string) => void;
+  
+  // Settings
   setBackendUrl: (url: string) => void;
+  setNeo4jConfig: (config: Neo4jConfig) => void;
 
   // Browser Actions
   createBrowserSession: (name: string) => void;

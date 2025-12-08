@@ -14,10 +14,10 @@ const BrowserPanel: React.FC = () => {
     
     // UI State
     const [activeSessionId, setActiveSessionId] = useState<string>(sessions[0]?.id || '');
-    const [url, setUrl] = useState('https://jsonplaceholder.typicode.com/todos/1'); // Default to a CORS-friendly URL
+    const [url, setUrl] = useState('https://jsonplaceholder.typicode.com/todos/1'); 
     const [method, setMethod] = useState('GET');
     const [requestBody, setRequestBody] = useState<string>('');
-    const [requestHeaders, setRequestHeaders] = useState<string>(''); // JSON string for headers
+    const [requestHeaders, setRequestHeaders] = useState<string>(''); // JSON string
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'PREVIEW' | 'JSON' | 'RAW'>('PREVIEW');
@@ -32,7 +32,7 @@ const BrowserPanel: React.FC = () => {
 
     // Response State
     const [responseContent, setResponseContent] = useState<string>('');
-    const [responseType, setResponseType] = useState<string>('text/html');
+    const [responseType, setResponseType] = useState<string>(''); // Can't reliably infer without headers from proxy
     const [responseStatus, setResponseStatus] = useState<number | null>(null);
 
     // Sync active session if list changes (e.g. initial load)
@@ -56,7 +56,7 @@ const BrowserPanel: React.FC = () => {
         setError(null);
         setResponseStatus(null);
         setResponseContent('');
-        setResponseType('text/html'); // Reset type for new request
+        setResponseType('');
 
         try {
             let headersParsed: Record<string, string> | undefined = undefined;
@@ -77,27 +77,24 @@ const BrowserPanel: React.FC = () => {
             }, activeSessionId);
 
             setResponseContent(result.content || '');
-            setResponseType(result.headers['content-type'] || 'text/html');
             setResponseStatus(result.status);
+            
+            // Heuristic content-type detection since Proxy doesn't return headers
+            let inferredType = 'text/plain';
+            const contentTrimmed = (result.content || '').trim();
+            if (contentTrimmed.startsWith('{') || contentTrimmed.startsWith('[')) inferredType = 'application/json';
+            else if (contentTrimmed.startsWith('<')) inferredType = 'text/html';
+            
+            setResponseType(inferredType);
+            
+            // Auto-switch view mode
+            if (inferredType === 'application/json') setViewMode('JSON');
+            else if (inferredType === 'text/html') setViewMode('PREVIEW');
+            else setViewMode('RAW');
 
-            // Add HAR entry to store if provided by backend
-            if (result.harEntry) {
-                // The addHarFile action expects a File, so we need to simulate.
-                // For a single HAR entry, we can directly manipulate the harEntries state.
-                const harId = activeSessionId; // Use session ID for HAR ID
-                const harName = `Browser Session: ${sessions.find(s => s.id === activeSessionId)?.name || activeSessionId}`;
-                const newEntry: HarEntryWrapper = {
-                    ...result.harEntry,
-                    _index: activeProject?.harEntries?.length || 0, // dynamic index
-                    _id: `browser-${result.harEntry.request.url}-${Date.now()}`,
-                    _selected: false,
-                    _harId: harId,
-                    _harName: harName,
-                };
-                
-                addHarFile(new File([JSON.stringify({ log: { entries: [newEntry] } })], 'browser-capture.har', { type: 'application/json' }));
-            }
-
+            // NOTE: HAR capture via backend is disabled as backend doesn't return full HAR entry currently.
+            // If needed, we would reconstruct it here, but we lack response headers.
+            
         } catch (err: any) {
             console.error("Browser navigation error:", err);
             setError(err.message);
@@ -139,9 +136,6 @@ const BrowserPanel: React.FC = () => {
             }
         }
         if (viewMode === 'PREVIEW' && isHtml) {
-            // Using srcDoc to display HTML content, ensuring it's sandboxed
-            // Sandbox attributes: allow-scripts for functionality, allow-same-origin if needed (be careful)
-            // No need for allow-modals as we're not using window.confirm
             return (
                 <iframe
                     title="Browser Preview"
@@ -151,7 +145,7 @@ const BrowserPanel: React.FC = () => {
                 />
             );
         }
-        // Fallback for non-HTML/JSON or preview for non-HTML
+        // Fallback
         return <pre className="whitespace-pre-wrap text-xs font-mono p-4 text-gray-300">
             {isJson && `[JSON detected, switch to JSON tab]\n\n`}
             {isHtml && `[HTML detected, switch to Preview tab]\n\n`}
@@ -214,7 +208,7 @@ const BrowserPanel: React.FC = () => {
                     >
                         <Plus size={16} />
                     </button>
-                    {activeSessionId && sessions.length > 1 && ( // Only show delete if more than one session
+                    {activeSessionId && sessions.length > 1 && ( 
                         <button 
                             onClick={requestDeleteSession}
                             className="p-1.5 bg-red-800/20 hover:bg-red-800/40 rounded text-red-400 transition-colors"
@@ -284,13 +278,13 @@ const BrowserPanel: React.FC = () => {
                         <textarea
                             value={requestBody}
                             onChange={(e) => setRequestBody(e.target.value)}
-                            placeholder="Request Body (JSON, text, etc.)"
+                            placeholder="Request Body"
                             className="flex-1 bg-gray-700 border border-gray-600 rounded p-2 text-xs text-white focus:outline-none focus:border-blue-500 resize-y min-h-[60px]"
                         />
                          <textarea
                             value={requestHeaders}
                             onChange={(e) => setRequestHeaders(e.target.value)}
-                            placeholder='Request Headers (JSON: {"Content-Type": "application/json"})'
+                            placeholder='Request Headers (JSON)'
                             className="flex-1 bg-gray-700 border border-gray-600 rounded p-2 text-xs text-white focus:outline-none focus:border-blue-500 resize-y min-h-[60px]"
                         />
                     </div>
