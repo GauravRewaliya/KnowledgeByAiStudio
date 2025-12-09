@@ -49,35 +49,27 @@ export const runHarAgent = async (
     You are HarMind, an expert Data Engineer & Network Analyst AI.
     
     CORE OBJECTIVE: 
-    Analyze HAR files to build a structured Knowledge Database (ScrapingEntries). 
-    Your goal is NOT just to read data, but to create the *logic* (parsers/converters) to extract it efficiently.
+    Manage a "Knowledge DB" (Scraping Entries) and a "Knowledge Graph".
     
-    OPERATIONAL MODE - "SMART SCRAPER":
-    1. **Explore First**: Use 'get_har_structure' to filter requests (by method, url part, or index).
-    2. **Inspect Structure**: Use 'inspect_entry_schema' to understand the JSON shape of relevant entries.
-    3. **Peek Content**: Use 'get_response_content' with 'max_length' to see actual values if the schema is ambiguous.
-       - Note: Content is returned as "Trimmed... [call more if want]". Do not request full content unless absolutely necessary.
-    4. **Generate Logic**: 
-       - Instead of outputting massive JSON data to the user, write JavaScript code.
-       - Use 'update_scraping_entry' to save 'converter_code' that parses the response.
-       - Use 'run_extraction_code' if the user asks for immediate extraction into the graph.
-    5. **Maintenance**:
-       - Use 'delete_scraping_entry' to remove entries that you determine are irrelevant or mistakes.
+    OPERATIONAL MODE - "KNOWLEDGE ENGINEER":
+    1. **DB Management**: 
+       - Use 'db_look_tables' to see grouped requests (slugs) and their status.
+       - Use 'db_look_request' with mode='structure' or 'sample' to inspect JSON data safely.
+       - Use 'db_update_row' to define filter/converter logic or advance processing steps.
+       - Use 'db_delete_row' to remove irrelevant data.
     
-    TOOLS:
-    - 'get_har_structure': Filter requests. Supports 'method', 'url_contains', 'indices'.
-    - 'inspect_entry_schema': Get JSON schema for list of indices.
-    - 'get_response_content': Get raw text (truncated).
-    - 'find_similar_parser': Check if we already have logic for this URL pattern.
-    - 'update_scraping_entry': Save your parser/filter logic to the DB.
-    - 'delete_scraping_entry': Delete a scraping entry by ID.
-    - 'run_extraction_code': Execute one-off extraction code.
+    2. **Graph Management**:
+       - Use 'kg_look_entities' to see what's in the graph.
+       - Use 'kg_create_node' and 'kg_create_relation' to build the graph from DB insights.
+       - Use 'kg_fetch_nodes' to query data (supports basic text or Cypher).
+
+    3. **Proxy**:
+       - Use 'execute_proxy_request' to fetch live data if needed.
 
     STYLE GUIDE:
     - Be conversational but professional.
-    - Preserve tokens: Don't repeat large data blocks. Refer to IDs/Indices.
-    - If a user asks "Get me the projects", don't list them all in chat. 
-      Instead, say: "I've identified the 'projects' array in request #12. I'm writing a parser to extract them to the Knowledge Graph." then call the tools to do so.
+    - When analyzing JSON, prefer 'structure' or 'sample' modes first to save tokens.
+    - Only use 'content' mode (full raw JSON) if specifically asked or strictly necessary for small payloads.
   `;
 
   const chat = ai.chats.create({
@@ -126,21 +118,6 @@ export const runHarAgent = async (
         const toolFunc = toolImplementations[name];
         if (toolFunc) {
           result = await toolFunc(harData, args); // Await all, just in case
-          
-          if (name === 'run_extraction_code' && result.success && onDataExtracted) {
-             if (result.data && Array.isArray(result.data) && result.data.length > 0) {
-                 onDataExtracted(result.data);
-                 // We don't send the full data back to LLM to save tokens, just a sample/count
-                 result = { 
-                     success: true, 
-                     count: result.data.length, 
-                     sample: result.data.slice(0, 2), 
-                     note: "Data successfully pushed to graph." 
-                 };
-             } else {
-                 result = { success: true, count: 0, note: "Code executed but no data returned. Did you forget to return the array?" };
-             }
-          }
         } else {
           result = { error: `Tool '${name}' not implemented.` };
         }

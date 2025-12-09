@@ -22,34 +22,38 @@ export const getHarStructureSummary = (entries: HarEntryWrapper[]) => {
 };
 
 /**
+ * Implements the "extract_first_object" logic (Ruby to TS port).
+ * Recursively takes the first element of any array it encounters,
+ * providing a simplified structural view of the JSON.
+ */
+export const extractFirstObject = (data: any): any => {
+    // Primitives
+    if (data === null || typeof data !== 'object') {
+        return data;
+    }
+
+    // Arrays: Take first item, recurse
+    if (Array.isArray(data)) {
+        if (data.length === 0) return [];
+        return [extractFirstObject(data[0])];
+    }
+
+    // Objects: Recurse values
+    const newObj: Record<string, any> = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            newObj[key] = extractFirstObject(data[key]);
+        }
+    }
+    return newObj;
+};
+
+/**
  * Summarizes a JSON object by truncating arrays to length 1 and simplifying strings.
- * This is used to show the "Schema" to the AI without sending 5MB of data.
+ * Used for the 'sample' view mode in KnowledgeDB tools.
  */
 export const summarizeJsonStructure = (obj: any, depth = 0): any => {
-    if (depth > 5) return "... (max depth)";
-    
-    if (Array.isArray(obj)) {
-        if (obj.length === 0) return [];
-        // Return first item as sample + length indicator, if possible
-        if (obj.length > 0) {
-            return [summarizeJsonStructure(obj[0], depth + 1), `... (${obj.length - 1} more items)`];
-        }
-        return []; // Empty array
-    }
-    
-    if (obj !== null && typeof obj === 'object') {
-        const newObj: any = {};
-        for (const key in obj) {
-            newObj[key] = summarizeJsonStructure(obj[key], depth + 1);
-        }
-        return newObj;
-    }
-    
-    if (typeof obj === 'string' && obj.length > 100) {
-        return obj.substring(0, 50) + "... (truncated)";
-    }
-    
-    return obj;
+    return extractFirstObject(obj);
 };
 
 /**
@@ -82,7 +86,6 @@ export const generateCurlCommand = (request: any): string => {
             if (header.name.startsWith(':')) return;
             
             // Skip content-length as it's auto-calculated by curl if body exists.
-            // Sending a mismatching content-length can cause the server to hang or error.
             if (header.name.toLowerCase() === 'content-length') return;
 
             // Escape single quotes in header values
@@ -98,9 +101,7 @@ export const generateCurlCommand = (request: any): string => {
         parts.push(`--data-raw '${body}'`);
     }
 
-    // Compression handling to avoid binary output warning
-    // Browser requests usually include Accept-Encoding: gzip. 
-    // curl needs --compressed to decode it, otherwise it prints binary and warns the user.
+    // Compression handling
     parts.push('--compressed');
     
     // Join with line continuation and indentation
@@ -109,7 +110,6 @@ export const generateCurlCommand = (request: any): string => {
 
 /**
  * Parses a basic cURL command string into method, url, headers, and body.
- * Limitations: Does not handle all cURL flags, binary data files, or complex quoting edge cases.
  */
 export const parseCurlCommand = (curlStr: string): { url: string; method: string; headers: Record<string, string>; body?: string } => {
     const result = {
@@ -131,7 +131,6 @@ export const parseCurlCommand = (curlStr: string): { url: string; method: string
     if (methodMatch) result.method = methodMatch[1];
 
     // Extract Headers (-H "Key: Value")
-    // Regex matches -H followed by quoted string
     const headerRegex = /-H\s+['"]([^'"]+)['"]/g;
     let match;
     while ((match = headerRegex.exec(cleanStr)) !== null) {
@@ -148,12 +147,8 @@ export const parseCurlCommand = (curlStr: string): { url: string; method: string
     const bodyMatch = cleanStr.match(/(--data-raw|--data|-d)\s+['"]((?:[^'"]|\\['"])+)['"]/);
     if (bodyMatch) {
         result.body = bodyMatch[2];
-        // If method wasn't explicit but body exists, default to POST
         if (result.method === 'GET') result.method = 'POST';
     }
-
-    // Fix compressed flag issue: if --compressed exists, we assume Accept-Encoding is handled by browser
-    // but in our proxy context, we might strip it or let browser handle it.
 
     return result;
 };

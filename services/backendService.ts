@@ -19,7 +19,13 @@ export const executeProxyRequest = async (backendUrl: string, requestData: any, 
 
         const fetchOptions: RequestInit = {
             method: requestData.method,
-            headers: requestData.headers
+            headers: {
+                // Headers to bypass tunneling service warning pages
+                'X-Tunnel-Skip-Anti-Phishing-Page': '1',
+                'ngrok-skip-browser-warning': 'true',
+                // Merge user headers
+                ...(requestData.headers || {})
+            },
         };
 
         // Add body if not GET/HEAD
@@ -70,7 +76,11 @@ export const checkBackendHealth = async (backendUrl: string): Promise<boolean> =
         // If we use 'no-cors', the headers are stripped, and we hit the warning page (opaque response), 
         // which might look like success but isn't valid for API usage.
         await fetch(baseUrl, { 
-            method: 'GET'
+            method: 'GET',
+            headers: {
+                 'X-Tunnel-Skip-Anti-Phishing-Page': '1',
+                 'ngrok-skip-browser-warning': 'true',
+            }
         }); 
         return true;
     } catch (e) {

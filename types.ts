@@ -120,6 +120,7 @@ export interface ScrapingEntry {
   converter_code: string; // JS/Ruby code string
   final_clean_response: Record<string, any>;
   processing_status: ProcessingStatus;
+  is_deleted?: boolean; // Soft delete flag
   workspace_id?: number;
   notes?: string;
   created_at: string;
