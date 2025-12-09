@@ -7,32 +7,30 @@ import { runCypherQuery } from "../../services/neo4jService";
 // --- Look Entities ---
 export const kgLookEntitiesDef: ToolDefinition = {
     name: "kg_look_entities",
-    description: "List all entities (nodes) in the graph. 'basic' returns IDs and Labels. 'structure' includes data keys.",
+    description: "List all entities (nodes) in the graph. Can optionally return structure (data keys).",
     parameters: {
         type: Type.OBJECT,
         properties: {
-            mode: { type: Type.STRING, description: "'basic' or 'structure'", optional: true }
+            structure: { type: Type.BOOLEAN, description: "If true, includes data keys for each node.", optional: true }
         },
         required: []
     }
 };
 
-export const kgLookEntitiesImpl: ToolFunction<{ mode?: 'basic' | 'structure' }, any> = (_h, args) => {
+export const kgLookEntitiesImpl: ToolFunction<{ structure?: boolean }, any> = (_h, args) => {
     const store = useProjectStore.getState();
     const nodes = store.activeProject?.knowledgeData.nodes || [];
-    const links = store.activeProject?.knowledgeData.links || [];
     
-    if (args.mode === 'structure') {
-        return {
-            nodes: nodes.map(n => ({ id: n.id, type: n.type, label: n.label, data_keys: Object.keys(n.data) })),
-            link_count: links.length
-        };
+    if (args.structure) {
+        return nodes.map(n => ({ 
+            id: n.id, 
+            type: n.type, 
+            label: n.label, 
+            data_keys: Object.keys(n.data || {}) 
+        }));
     }
 
-    return {
-        nodes: nodes.map(n => ({ id: n.id, label: n.label, type: n.type })),
-        links: links.map(l => ({ s: l.source, t: l.target, rel: l.label }))
-    };
+    return nodes.map(n => ({ id: n.id, label: n.label, type: n.type }));
 };
 
 // --- Look One Entity ---
@@ -64,7 +62,7 @@ export const kgCreateNodeDef: ToolDefinition = {
             label: { type: Type.STRING, description: "Display name" },
             type: { type: Type.STRING, description: "Category/Type" },
             data: { type: Type.OBJECT, description: "Properties" },
-            id: { type: Type.STRING, description: "Optional ID (auto-generated if missing)", optional: true }
+            id: { type: Type.STRING, description: "Optional ID", optional: true }
         },
         required: ["label", "type", "data"]
     }
@@ -108,21 +106,21 @@ export const kgCreateRelationImpl: ToolFunction<{ source_id: string, target_id: 
 // --- Fetch Nodes (Query) ---
 export const kgFetchNodesDef: ToolDefinition = {
     name: "kg_fetch_nodes",
-    description: "Query the graph. Use 'simple' for regex text search on labels/data in local graph. Use 'cypher' to run queries against connected Neo4j instance.",
+    description: "Query the graph. Provide 'query_str' for local search or 'cypher' for Neo4j.",
     parameters: {
         type: Type.OBJECT,
         properties: {
-            query_str: { type: Type.STRING, description: "Search term or Cypher query" },
-            query_type: { type: Type.STRING, description: "'simple' or 'cypher'", optional: true, default: 'simple' }
+            query_str: { type: Type.STRING, description: "Search term" },
+            cypher: { type: Type.BOOLEAN, description: "If true, treats query_str as Cypher query.", optional: true }
         },
         required: ["query_str"]
     }
 };
 
-export const kgFetchNodesImpl: ToolFunction<{ query_str: string, query_type?: string }, any> = async (_h, args) => {
+export const kgFetchNodesImpl: ToolFunction<{ query_str: string, cypher?: boolean }, any> = async (_h, args) => {
     const store = useProjectStore.getState();
     
-    if (args.query_type === 'cypher') {
+    if (args.cypher) {
         try {
             const results = await runCypherQuery(args.query_str);
             return { type: 'cypher_result', count: results.length, data: results };

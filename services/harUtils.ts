@@ -3,10 +3,8 @@ import { HarEntryWrapper, HarEntry } from "../types";
 
 /**
  * Summarizes the HAR file structure for the AI.
- * It truncates detailed lists to avoid token limits.
  */
 export const getHarStructureSummary = (entries: HarEntryWrapper[]) => {
-    // Only consider selected entries if any are selected, else all
     const activeEntries = entries.some(e => e._selected) ? entries.filter(e => e._selected) : entries;
 
     return activeEntries.map(e => ({
@@ -22,35 +20,78 @@ export const getHarStructureSummary = (entries: HarEntryWrapper[]) => {
 };
 
 /**
- * Implements the "extract_first_object" logic (Ruby to TS port).
- * Recursively takes the first element of any array it encounters,
- * providing a simplified structural view of the JSON.
+ * Logic to extract the first array element, recursively for Hash of Arrays.
+ * Matches Ruby implementation: extract_first_array
  */
-export const extractFirstObject = (data: any): any => {
-    // Primitives
-    if (data === null || typeof data !== 'object') {
-        return data;
-    }
+export const extractFirstArray = (jsonBody: any): any => {
+    if (jsonBody === null || jsonBody === undefined) return jsonBody;
 
-    // Arrays: Take first item, recurse
-    if (Array.isArray(data)) {
-        if (data.length === 0) return [];
-        return [extractFirstObject(data[0])];
-    }
-
-    // Objects: Recurse values
-    const newObj: Record<string, any> = {};
-    for (const key in data) {
-        if (Object.prototype.hasOwnProperty.call(data, key)) {
-            newObj[key] = extractFirstObject(data[key]);
+    if (typeof jsonBody === 'object' && !Array.isArray(jsonBody)) {
+        // Hash / Object logic
+        const result: any = {};
+        for (const key in jsonBody) {
+            const value = jsonBody[key];
+            
+            if (Array.isArray(value)) {
+                 if (value.length === 0) {
+                     result[key] = [];
+                 } else {
+                     const item = value[0];
+                     const isPrimitive = ['string', 'number', 'boolean'].includes(typeof item) || item === null;
+                     const isHash = typeof item === 'object' && item !== null && !Array.isArray(item);
+                     
+                     if (isPrimitive) {
+                         result[key] = [item];
+                     } else if (isHash) {
+                         result[key] = [extractFirstArray(item)];
+                     } else {
+                         // Fallback for mixed or other types, mirroring "Invalid JSON structure" handling by taking first
+                         result[key] = [item];
+                     }
+                 }
+            } else if (typeof value === 'object' && value !== null) {
+                result[key] = extractFirstArray(value);
+            } else {
+                result[key] = value;
+            }
         }
+        return result;
+    } else if (Array.isArray(jsonBody)) {
+        return jsonBody.length > 0 ? [extractFirstArray(jsonBody[0])] : [];
     }
-    return newObj;
+    
+    return jsonBody;
 };
 
 /**
- * Summarizes a JSON object by truncating arrays to length 1 and simplifying strings.
- * Used for the 'sample' view mode in KnowledgeDB tools.
+ * Logic to extract object structure (v2).
+ * Matches Ruby implementation: extract_first_object
+ */
+export const extractFirstObject = (jsonBody: any): any => {
+    if (jsonBody === null) return null;
+    
+    const type = typeof jsonBody;
+    if (type === 'string' || type === 'number' || type === 'boolean') {
+        return jsonBody;
+    }
+    
+    if (Array.isArray(jsonBody)) {
+        return jsonBody.length > 0 ? [extractFirstObject(jsonBody[0])] : [];
+    }
+    
+    if (type === 'object') {
+        const result: any = {};
+        for (const key in jsonBody) {
+            result[key] = extractFirstObject(jsonBody[key]);
+        }
+        return result;
+    }
+    
+    return jsonBody;
+};
+
+/**
+ * Summarizes a JSON object using extractFirstObject.
  */
 export const summarizeJsonStructure = (obj: any, depth = 0): any => {
     return extractFirstObject(obj);
@@ -72,7 +113,6 @@ export const generateCurlCommand = (request: any): string => {
     const parts: string[] = [];
     
     // Basic command and URL
-    // Escape single quotes in URL just in case
     const url = request.url.replace(/'/g, "'\\''");
     parts.push(`curl '${url}'`);
     
@@ -82,13 +122,8 @@ export const generateCurlCommand = (request: any): string => {
     // Headers
     if (request.headers) {
         request.headers.forEach((header: any) => {
-            // Skip pseudo-headers
             if (header.name.startsWith(':')) return;
-            
-            // Skip content-length as it's auto-calculated by curl if body exists.
             if (header.name.toLowerCase() === 'content-length') return;
-
-            // Escape single quotes in header values
             const value = header.value.replace(/'/g, "'\\''");
             parts.push(`-H '${header.name}: ${value}'`);
         });
@@ -96,15 +131,11 @@ export const generateCurlCommand = (request: any): string => {
 
     // Body
     if (request.postData && request.postData.text) {
-        // Escape single quotes in the body
         const body = request.postData.text.replace(/'/g, "'\\''");
         parts.push(`--data-raw '${body}'`);
     }
 
-    // Compression handling
     parts.push('--compressed');
-    
-    // Join with line continuation and indentation
     return parts.join(' \\\n  ');
 };
 
@@ -119,18 +150,14 @@ export const parseCurlCommand = (curlStr: string): { url: string; method: string
         body: undefined as string | undefined
     };
 
-    // Normalize: remove newlines/backslashes
     const cleanStr = curlStr.replace(/\\\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-    // Extract URL (assumes it's the first non-flag argument usually, or after 'curl')
     const urlMatch = cleanStr.match(/curl\s+['"]?([^'"]+)['"]?/);
     if (urlMatch) result.url = urlMatch[1];
 
-    // Extract Method (-X POST)
     const methodMatch = cleanStr.match(/-X\s+['"]?([A-Z]+)['"]?/);
     if (methodMatch) result.method = methodMatch[1];
 
-    // Extract Headers (-H "Key: Value")
     const headerRegex = /-H\s+['"]([^'"]+)['"]/g;
     let match;
     while ((match = headerRegex.exec(cleanStr)) !== null) {
@@ -143,7 +170,6 @@ export const parseCurlCommand = (curlStr: string): { url: string; method: string
         }
     }
 
-    // Extract Body (--data, --data-raw, -d)
     const bodyMatch = cleanStr.match(/(--data-raw|--data|-d)\s+['"]((?:[^'"]|\\['"])+)['"]/);
     if (bodyMatch) {
         result.body = bodyMatch[2];

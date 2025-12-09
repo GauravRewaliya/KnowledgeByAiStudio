@@ -116,9 +116,9 @@ export interface ScrapingEntry {
   url: string;
   request: HarRequest;
   response: HarResponse | Record<string, any>; // Can be HAR response or JSON from proxy
-  filterer_json: Record<string, any>; // Schema/Filter definition
+  filterer_json: Record<string, any>; // Schema/Filter definition (mapped to clean_response_filter)
   converter_code: string; // JS/Ruby code string
-  final_clean_response: Record<string, any>;
+  final_clean_response: Record<string, any>; // Mapped to clean_response
   processing_status: ProcessingStatus;
   is_deleted?: boolean; // Soft delete flag
   workspace_id?: number;

@@ -3,12 +3,12 @@ import { ToolDefinition, ToolFunction } from "../../types/ai";
 import { Type } from "@google/genai";
 import { useProjectStore } from "../../store/projectStore";
 import { ProcessingStatus } from "../../types";
-import { extractFirstObject, truncateContent } from "../../services/harUtils";
+import { extractFirstArray, extractFirstObject, truncateContent } from "../../services/harUtils";
 
 // --- Look Tables ---
 export const dbListTablesDef: ToolDefinition = {
     name: "db_look_tables",
-    description: "List grouping tables (group_slugs) from the Knowledge DB. Returns status, primary filter info, and counts.",
+    description: "Look at the Knowledge DB tables/groups. Returns grouped summary with [status, primary_filter_json, group_slug].",
     parameters: {
         type: Type.OBJECT,
         properties: {},
@@ -26,81 +26,87 @@ export const dbListTablesImpl: ToolFunction<{}, any> = () => {
     entries.forEach(e => {
         if (e.is_deleted) return;
         
-        if (!groups[e.source_type_key]) {
-            groups[e.source_type_key] = {
+        const slug = e.source_type_key;
+        if (!groups[slug]) {
+            groups[slug] = {
                 count: 0,
                 status: e.processing_status,
                 primary_filter_json: e.filterer_json || {}
             };
         }
-        groups[e.source_type_key].count++;
-        // If any in group is final, mark group as such (simplification)
-        if (e.processing_status === ProcessingStatus.FinalResponse) {
-             groups[e.source_type_key].status = ProcessingStatus.FinalResponse;
-             groups[e.source_type_key].primary_filter_json = e.filterer_json;
+        groups[slug].count++;
+        
+        // If this entry is more 'advanced' or has a filter, prioritize showing it
+        if (e.processing_status === ProcessingStatus.FinalResponse || Object.keys(e.filterer_json).length > 0) {
+             groups[slug].status = e.processing_status;
+             groups[slug].primary_filter_json = e.filterer_json;
         }
     });
 
     return Object.entries(groups).map(([slug, data]) => ({
         group_slug: slug,
-        ...data
+        status: data.status,
+        primary_filter_json: data.primary_filter_json,
+        count: data.count
     }));
 };
 
-// --- Look Request (Structure, Sample, Content) ---
+// --- Look Request (Combined) ---
 export const dbLookRequestDef: ToolDefinition = {
     name: "db_look_request",
-    description: "Inspect a specific request in the Knowledge DB. 'structure' returns simplified schema (arrays=1 item). 'sample' returns simplified data. 'content' returns exact raw JSON (use carefully).",
+    description: "Inspect a request in the Knowledge DB. Modes: 'structure' (simplified schema), 'sample' (first items of arrays), 'content' (full raw JSON).",
     parameters: {
         type: Type.OBJECT,
         properties: {
             row_id: { type: Type.STRING, description: "The UUID of the scraping entry." },
-            mode: { type: Type.STRING, description: "One of: 'structure', 'sample', 'content'" }
+            structure: { type: Type.BOOLEAN, description: "Returns simplified structure (v2 logic).", optional: true },
+            sample: { type: Type.BOOLEAN, description: "Returns sample data (v1 logic - 1st array item).", optional: true },
+            content: { type: Type.BOOLEAN, description: "Returns exact content (raw).", optional: true }
         },
-        required: ["row_id", "mode"]
+        required: ["row_id"]
     }
 };
 
-export const dbLookRequestImpl: ToolFunction<{ row_id: string, mode: 'structure' | 'sample' | 'content' }, any> = (_h, args) => {
+export const dbLookRequestImpl: ToolFunction<{ row_id: string, structure?: boolean, sample?: boolean, content?: boolean }, any> = (_h, args) => {
     const store = useProjectStore.getState();
     const entry = store.activeProject?.scrapingEntries.find(e => e.id === args.row_id);
     
     if (!entry) return { error: "Entry not found" };
     
     // Parse response content
-    let jsonBody = {};
-    const rawText = (entry.response as any).content?.text || JSON.stringify(entry.response);
+    let jsonBody: any = {};
+    const rawContent = (entry.response as any).content?.text || JSON.stringify(entry.response);
     try {
-        jsonBody = JSON.parse(rawText);
+        jsonBody = JSON.parse(rawContent);
     } catch {
-        jsonBody = { error: "Could not parse JSON", raw: truncateContent(rawText, 200) };
+        jsonBody = { error: "Could not parse JSON", raw: truncateContent(rawContent, 200) };
     }
 
-    if (args.mode === 'structure' || args.mode === 'sample') {
-        // Use the recursive simplification logic
-        return {
-            id: entry.id,
-            url: entry.url,
-            // Structure/Sample logic is handled by extractFirstObject which truncates arrays to 1 item
-            data: extractFirstObject(jsonBody)
-        };
-    } 
-    
-    if (args.mode === 'content') {
-        return {
-            id: entry.id,
+    if (args.content) {
+         return {
             json_structure: jsonBody,
             full_response: true
         };
     }
 
-    return { error: "Invalid mode" };
+    if (args.structure) {
+        // extract_first_object (v2) logic
+        return extractFirstObject(jsonBody);
+    }
+
+    if (args.sample) {
+        // extract_first_array (v1) logic
+        return extractFirstArray(jsonBody);
+    }
+
+    // Default fallback
+    return extractFirstObject(jsonBody);
 };
 
 // --- Update Row ---
 export const dbUpdateRowDef: ToolDefinition = {
     name: "db_update_row",
-    description: "Update a scraping entry (row). Can update processing step, converter code, or filter JSON.",
+    description: "Update a scraping entry (row). Can update processing step (status), converter code, or filter JSON.",
     parameters: {
         type: Type.OBJECT,
         properties: {
